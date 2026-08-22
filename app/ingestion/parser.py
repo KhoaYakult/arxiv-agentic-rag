@@ -41,10 +41,21 @@ def parse_pdf_to_markdown(pdf_path: str | Path) -> str:
     try:
         md_text = pymupdf4llm.to_markdown(str(pdf_path))
     except Exception as e:
-        raise RuntimeError(
-            f"[ERROR] Parse PDF that bai.\n"
-            f"       Chi tiet loi: {e}"
-        ) from e
+        print(f"[WARN] pymupdf4llm loi hoac het RAM tren Server: {e}", flush=True)
+        print("[INFO] Chuyen sang che do fallback PyMuPDF (fitz) sieu nhe (15MB RAM)...", flush=True)
+        try:
+            import fitz
+            doc = fitz.open(pdf_path)
+            pages_text = []
+            for page in doc:
+                text = page.get_text()
+                if text.strip():
+                    pages_text.append(text)
+            md_text = "\n\n".join(pages_text)
+        except Exception as e2:
+            raise RuntimeError(
+                f"[ERROR] Parse PDF thất bại hoàn toàn.\nLỗi 1: {e}\nLỗi 2: {e2}"
+            ) from e2
 
     if not md_text or not md_text.strip():
         raise RuntimeError(
