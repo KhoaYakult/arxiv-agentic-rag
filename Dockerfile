@@ -24,5 +24,5 @@ RUN mkdir -p data
 # Mở cổng 7860 (Cổng mặc định của Hugging Face Spaces)
 EXPOSE 7860
 
-# Chạy FastAPI bằng Uvicorn trên cổng 7860
-CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Chạy uvicorn tự động nhận $PORT từ Railway (hoặc 7860 nếu chạy local)
+CMD ["sh", "-c", "uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
