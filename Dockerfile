@@ -21,8 +21,9 @@ COPY . .
 # Tạo thư mục data nếu chưa có
 RUN mkdir -p data
 
-# Mở cổng 8000 (Cổng chuẩn của FastAPI)
-EXPOSE 8000
+# Cố định cổng 7860 đồng bộ với Railway Domain Target Port
+ENV PORT=7860
+EXPOSE 7860
 
-# Chạy uvicorn cố định trên cổng 8000
-CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Chạy uvicorn cố định trên cổng 7860
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "7860"]
