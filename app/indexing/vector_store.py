@@ -16,9 +16,8 @@ if str(BASE_DIR) not in sys.path:
 from app.config import settings
 from app.ingestion.chunker import ChildChunk
 
-# Số lượng chunk xử lý trong mỗi đợt gọi HF API
-# (Tránh gọi quá nhiều request cùng lúc, gây rate-limit)
-EMBED_BATCH_SIZE = 32
+# Số lượng chunk xử lý trong mỗi đợt gọi HF API (64 chunks/batch giúp tăng gấp đôi tốc độ)
+EMBED_BATCH_SIZE = 64
 
 # Tên model embedding đầy đủ trên HuggingFace Hub
 HF_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"

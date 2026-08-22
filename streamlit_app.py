@@ -316,7 +316,8 @@ def upload_pdf(file_bytes: bytes, filename: str, paper_id: str | None = None) ->
     try:
         files = {"file": (filename, file_bytes, "application/pdf")}
         data = {"paper_id": paper_id} if paper_id else {}
-        r = requests.post(f"{API_BASE}/upload", files=files, data=data, timeout=120)
+        # Tăng timeout lên 300s (5 phút) cho các file PDF nặng (14MB+)
+        r = requests.post(f"{API_BASE}/upload", files=files, data=data, timeout=300)
         if r.status_code == 201:
             return r.json()
         else:
