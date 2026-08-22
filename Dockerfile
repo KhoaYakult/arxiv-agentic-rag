@@ -21,9 +21,8 @@ COPY . .
 # Tạo thư mục data nếu chưa có
 RUN mkdir -p data
 
-# Cố định cổng 7860 đồng bộ với Railway Domain Target Port
-ENV PORT=7860
-EXPOSE 7860
+# Mở cổng mặc định
+EXPOSE 8000
 
-# Chạy uvicorn cố định trên cổng 7860
-CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Dùng exec sh để uvicorn tự lắng nghe cổng $PORT do Railway cấp phát
+CMD ["sh", "-c", "exec uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
