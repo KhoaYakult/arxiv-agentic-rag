@@ -17,7 +17,7 @@ ENV/
 cache/
 .cache/
 
-# Dữ liệu cache và DB local (tránh push file nặng)
+# Dữ liệu cache và DB local
 data/chroma_db/
 data/chunks_cache/
 data/bm25_index/
