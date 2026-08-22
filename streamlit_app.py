@@ -296,7 +296,8 @@ if "selected_paper" not in st.session_state:
 def check_server() -> bool:
     """Kiem tra FastAPI server co dang chay khong."""
     try:
-        r = requests.get(f"{API_BASE}/health", timeout=2)
+        # Tăng timeout lên 10s cho kết nối mạng HTTPS xuyên quốc gia
+        r = requests.get(f"{API_BASE}/health", timeout=10)
         return r.status_code == 200
     except Exception:
         return False
