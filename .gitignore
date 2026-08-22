@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cấu hình môi trường chứa API Key (RẤT QUAN TRỌNG)
+.env
+.env.*
+!.env.example
+
+# Môi trường ảo Python
+venv/
+env/
+ENV/
+
+# Thư mục cache model (HuggingFace / Ollama)
+cache/
+.cache/
+
+# Dữ liệu cache và DB local (tránh push file nặng)
+data/chroma_db/
+data/chunks_cache/
+data/bm25_index/
+data/chat_memory.db
+data/papers_registry.json
+data/*.pdf
+data/*.json
+data/*.pkl
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
