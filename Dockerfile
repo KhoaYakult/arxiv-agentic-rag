@@ -21,8 +21,8 @@ COPY . .
 # Tạo thư mục data nếu chưa có
 RUN mkdir -p data
 
-# Mở cổng 7860 (Cổng mặc định của Hugging Face Spaces)
-EXPOSE 7860
+# Mở cổng 8000 (Cổng chuẩn của FastAPI)
+EXPOSE 8000
 
-# Chạy uvicorn tự động nhận $PORT từ Railway (hoặc 7860 nếu chạy local)
-CMD ["sh", "-c", "uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+# Chạy uvicorn cố định trên cổng 8000
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
