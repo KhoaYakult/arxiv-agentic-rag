@@ -12,6 +12,7 @@ Cach chay:
     streamlit run streamlit_app.py
 """
 
+import os
 import uuid
 from datetime import datetime
 
@@ -29,7 +30,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-API_BASE = "http://localhost:8000/api/v1"
+# Tự động lấy URL Render khi deploy, hoặc dùng localhost khi chạy ở máy nhà
+API_BASE = os.environ.get(
+    "API_BASE",
+    st.secrets.get("API_BASE", "http://localhost:8000/api/v1")
+).rstrip("/")
+if not API_BASE.endswith("/api/v1"):
+    API_BASE = f"{API_BASE}/api/v1"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CUSTOM CSS — GIAO DIEN PREMIUM DARK MODE
