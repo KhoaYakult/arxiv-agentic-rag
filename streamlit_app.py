@@ -30,10 +30,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Tự động lấy URL Render khi deploy, hoặc dùng localhost khi chạy ở máy nhà
+# Tự động lấy URL Railway công khai khi deploy
+RAILWAY_URL = "https://arxiv-agentic-rag-production.up.railway.app"
+
 API_BASE = os.environ.get(
     "API_BASE",
-    st.secrets.get("API_BASE", "http://localhost:8000/api/v1")
+    st.secrets.get("API_BASE", RAILWAY_URL)
 ).rstrip("/")
 if not API_BASE.endswith("/api/v1"):
     API_BASE = f"{API_BASE}/api/v1"
