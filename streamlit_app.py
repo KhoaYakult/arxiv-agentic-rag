@@ -323,7 +323,11 @@ def upload_pdf(file_bytes: bytes, filename: str, paper_id: str | None = None) ->
         if r.status_code == 201:
             return r.json()
         else:
-            return {"error": r.json().get("detail", "Loi khong xac dinh")}
+            try:
+                err_detail = r.json().get("detail", r.text)
+            except Exception:
+                err_detail = f"HTTP {r.status_code}: {r.text[:300]}"
+            return {"error": err_detail}
     except Exception as e:
         return {"error": str(e)}
 
