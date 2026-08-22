@@ -21,8 +21,8 @@ COPY . .
 # Tạo thư mục data nếu chưa có
 RUN mkdir -p data
 
-# Mở cổng mặc định
+# Mở cổng 8000 nguyên bản của FastAPI
 EXPOSE 8000
 
-# Dùng exec sh để uvicorn tự lắng nghe cổng $PORT do Railway cấp phát
-CMD ["sh", "-c", "exec uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Chạy uvicorn cố định trên cổng 8000
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
