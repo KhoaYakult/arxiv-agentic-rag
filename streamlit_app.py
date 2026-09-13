@@ -30,13 +30,24 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Tự động lấy URL Railway công khai khi deploy
-RAILWAY_URL = "https://arxiv-agentic-rag-production.up.railway.app"
+# Cấu hình API Backend linh hoạt (mặc định localhost:8000 khi chạy local)
+LOCAL_API = "http://127.0.0.1:8000"
 
-API_BASE = os.environ.get(
-    "API_BASE",
-    st.secrets.get("API_BASE", RAILWAY_URL)
-).rstrip("/")
+
+def _resolve_api_base() -> str:
+    # 1. Ưu tiên biến môi trường
+    if os.environ.get("API_BASE"):
+        return os.environ["API_BASE"]
+    # 2. Thử lấy từ Streamlit Secrets nếu có file cấu hình
+    try:
+        if "API_BASE" in st.secrets:
+            return st.secrets["API_BASE"]
+    except Exception:
+        pass
+    # 3. Mặc định chạy local kết nối tới FastAPI localhost
+    return LOCAL_API
+
+API_BASE = _resolve_api_base().rstrip("/")
 if not API_BASE.endswith("/api/v1"):
     API_BASE = f"{API_BASE}/api/v1"
 
