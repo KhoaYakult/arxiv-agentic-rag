@@ -1,53 +1,154 @@
+# Architecture
+
+System reference for ArXiv Agentic RAG. For the upgrade plan and rationale behind pending architectural changes, see [`ROADMAP.md`](ROADMAP.md). For contributor conventions and gotchas, see [`../CLAUDE.md`](../CLAUDE.md).
+
+## Overview
+
 ```mermaid
 flowchart TD
-    subgraph UI_API ["1. Giao diện & API"]
-        ST["Streamlit UI (streamlit_app.py)"] -->|HTTP REST| API["FastAPI (main.py + routes.py)"]
+    subgraph UI["Frontend"]
+        ST["streamlit_app.py"]
     end
 
-    subgraph INGESTION ["2. Tầng Nạp & Tiền xử lý (Ingestion)"]
-        PDF["File PDF ArXiv"] --> PARSER["parser.py (PyMuPDF / Markdown)"]
-        PARSER --> CHUNKER["chunker.py (Parent-Child Chunking)"]
+    subgraph API["app/api/"]
+        MAIN["main.py (FastAPI app, CORS)"]
+        ROUTES["routes.py (/health /papers /upload /ask)"]
     end
 
-    subgraph RETRIEVAL ["3. Tầng Indexing & Hybrid Search"]
-        CHUNKER --> VDB["vector_store.py (ChromaDB - Ngữ nghĩa)"]
-        CHUNKER --> BM25["bm25_store.py (BM25 - Từ khóa)"]
-        VDB & BM25 --> HYBRID["hybrid_retriever.py (Hợp nhất)"]
-        HYBRID --> RERANK["reranker.py (Cohere Rerank Top-K)"]
+    subgraph ING["app/ingestion/"]
+        PARSER["parser.py\nparse_pdf_to_markdown()"]
+        CHUNKER["chunker.py\nsplit_parent_sections()\ncreate_child_chunks()"]
     end
 
-    subgraph AGENT ["4. Agentic RAG (LangGraph)"]
-        API --> GRAPH["rag_graph.py (Self-Reflective RAG)"]
-        GRAPH -->|Truy vấn| RERANK
-        GRAPH --> GRADE["Grade Documents (Chấm độ liên quan)"]
-        GRADE -->|Không đủ| REWRITE["Rewrite Query (Viết lại câu hỏi)"]
-        REWRITE --> GRAPH
-        GRADE -->|Đủ liên quan| GEN["Generate Answer (Groq Llama-3 / Gemini)"]
+    subgraph IDX["app/indexing/"]
+        VDB["vector_store.py\nVectorStoreManager (ChromaDB)"]
+        BM25["bm25_store.py\nBM25StoreManager (rank_bm25)"]
+        HYBRID["hybrid_retriever.py\nHybridRetriever.retrieve()\nRRF fusion"]
+        RERANK["reranker.py\nRerankerManager (Cohere / CrossEncoder)"]
     end
+
+    subgraph AGENT["app/agent/rag_graph.py"]
+        GRAPH["LangGraph StateGraph\nretrieve -> grade -> rewrite? -> generate"]
+    end
+
+    subgraph LLM["app/llm/"]
+        FACTORY["llm_factory.get_llm()\nGroq -> Gemini fallback"]
+        PROMPTS["prompt_templates.py"]
+    end
+
+    ST -->|HTTP| MAIN --> ROUTES
+    ROUTES -->|POST /upload| PARSER --> CHUNKER
+    CHUNKER --> VDB
+    CHUNKER --> BM25
+    ROUTES -->|POST /ask| GRAPH
+    GRAPH --> HYBRID
+    VDB --> HYBRID
+    BM25 --> HYBRID
+    HYBRID --> RERANK
+    GRAPH --> FACTORY
+    FACTORY --> PROMPTS
 ```
 
----
+## Data flow
 
-## 📌 Các Điểm Cần Cải Tiến Cho `app/ingestion/parser.py`
+### Upload path (`POST /api/v1/upload`)
 
-| STT | Tính năng cải tiến | Mô tả kỹ thuật | Mục tiêu & Lợi ích |
-|:---:|---|---|---|
-| **1** | **Giữ Metadata số trang (`page_chunks=True`)** | Gọi `pymupdf4llm.to_markdown(..., page_chunks=True)` trả về cấu trúc từng trang kèm số trang tương ứng. | Giúp hệ thống trích dẫn chính xác số trang (Page citation) cho câu trả lời của Agent. |
-| **2** | **Tải tự động qua ArXiv ID / URL** | Tích hợp thư viện Python `arxiv` để tải trực tiếp file PDF từ mã ID (VD: `2303.08774`) và thu thập sẵn metadata (Title, Authors, Abstract). | Tiết kiệm thao tác tải thủ công về máy cho người dùng. |
-| **3** | **Cơ chế Cache Markdown (`cache/parsed_markdown/`)** | Tính mã băm (MD5 / SHA256) của file PDF và lưu kết quả Markdown vào thư mục cache cục bộ. | Tránh parse lại tốn CPU khi khởi động lại ứng dụng, phản hồi tức thì (0.01s). |
-| **4** | **Xử lý hình ảnh & đồ thị (Multimodal RAG)** | Bật `write_images=True` để xuất ảnh đồ thị / bảng biểu, sau đó gọi Vision LLM (Gemini Flash / GPT-4o-mini) tạo caption mô tả đưa vào text. | Cho phép AI trả lời được các câu hỏi liên quan đến biểu đồ và số liệu đồ họa. |
-| **5** | **Bộ lọc dọn rác văn bản (Regex Cleaner)** | Thêm bước Regex hậu xử lý để loại bỏ header lặp lại ở đầu trang (`arXiv:xxxx.xxxxv1`), watermark và số trang. | Giảm độ nhiễu cho mô hình Vector Embedding, nâng cao chất lượng tìm kiếm. |
-| **6** | **OCR Fallback cho tài liệu Scan / Ảnh** | Bổ sung lớp Fallback thứ 3 với `pytesseract` hoặc `easyocr` khi văn bản trích xuất bị rỗng. | Ngăn ngừa lỗi `RuntimeError` khi người dùng tải lên tài liệu PDF dạng scan ảnh. |
+1. `routes.upload_paper()` saves the raw PDF to `data/`, slugifies the filename into a `paper_id` (unless one is supplied).
+2. `chunker.process_paper_ingestion()` orchestrates:
+   - `parser.parse_pdf_to_markdown()` — PyMuPDF4LLM (`page_chunks=True`) with a raw-`fitz` fallback if it OOMs. Output is a single Markdown string with `<!-- page:N -->` markers between pages.
+   - `chunker.split_parent_sections()` — regex heading detection splits the Markdown into `ParentSection` objects (`section_id`, `section_name`, `text`).
+   - `chunker.create_child_chunks()` — sliding-window split of each section into `ChildChunk` objects (`chunk_id`, `parent_section_id`, `parent_section_name`, `paper_id`, `text`, `is_table`), snapping cuts to paragraph → sentence → word boundaries.
+3. Chunks are cached to `data/chunks_cache/{paper_id}_chunks.json` so re-uploading the same `paper_id` skips re-parsing.
+4. `VectorStoreManager.add_child_chunks()` embeds each chunk via the HF Inference API and writes it into the single global ChromaDB collection `arxiv_papers` (isolated by a `paper_id` metadata filter, not separate collections).
+5. `BM25StoreManager.build_index()` tokenizes each chunk and merges it into the on-disk BM25 corpus (`data/bm25_index/*.pkl`), keyed by `chunk_id` — this does **not** replace other papers already indexed.
+6. `paper_id → {title, filename, num_chunks}` is appended to `data/papers_registry.json`.
 
----
+**Note:** `ParentSection`s are produced in step 2 but never persisted past that function call — only `ChildChunk`s reach the index. There is currently no way to expand a matched chunk back out to its full section.
 
-## 📌 Các Điểm Cần Cải Tiến Cho `app/ingestion/chunker.py`
+### Query path (`POST /api/v1/ask`)
 
-| STT | Tính năng cải tiến | Mô tả kỹ thuật | Mục tiêu & Lợi ích |
-|:---:|---|---|---|
-| **1** | **Xử lý Bảng biểu thông minh (Table-Aware Chunking)** | Biến bảng thành khối đơn vị nguyên tử (Atomic block) không cắt vụn; nếu bảng quá dài (> max_chars) thì tự động sao chép lại dòng Header (`\| Col 1 \| Col 2 \|` và `\|---\|---|`) gắn vào đầu mỗi chunk con. | Giữ nguyên vẹn cấu trúc bảng số liệu, tránh việc chunk sau bị mất tiêu đề cột trở thành dữ liệu rác. |
-| **2** | **Loại trừ câu in đậm & Mở rộng Regex Tiêu đề** | Thêm điều kiện loại trừ: đoạn in đậm kết thúc bằng dấu chấm `.` hoặc dài quá 12 từ thì là câu văn thường (không phải Section); mở rộng regex hỗ trợ đánh số thập phân (`1.1`, `2.3.1`), Title Case và phụ lục (`Appendix A`). | Ngăn chặn việc băm nát bài báo thành hàng chục section rác; không bỏ sót các section phụ lục toán học quan trọng. |
-| **3** | **Chuyển cửa sổ lùi sang Tỷ lệ động (Dynamic Search Window)** | Thay thế các con số hardcode `-200`, `-150`, `-50` bằng tỷ lệ phần trăm theo `target` (`para_win = int(target * 0.25)`, `sent_win = int(target * 0.18)`, `word_win = min(50, int(target * 0.08))`). | Linh hoạt thích ứng khi người dùng thay đổi cấu hình `chunk_size` (200, 500 hay 2000) mà không bị lỗi âm chỉ số. |
-| **4** | **Tính độ dài theo Token (Token-based Chunking)** | Sử dụng `tiktoken` hoặc HuggingFace tokenizer để đo kích thước chunk theo Tokens (vd: `max_tokens = 256`) thay vì đếm ký tự thô. | Đồng bộ hoàn hảo với Context Window của các mô hình Embedding và LLM, tránh tràn token. |
-| **5** | **Làm giàu Siêu dữ liệu (Rich Metadata Enrichment)** | Bổ sung vào `ChildChunk` các trường: `page_number` (số trang), `chunk_index_in_section` (thứ tự trong section), và `has_formula` (cờ nhận diện công thức LaTeX `$ ... $`). | Giúp Agent định vị chính xác vị trí bài báo khi dẫn nguồn và ưu tiên đoạn giải thích công thức khi người dùng hỏi. |
-| **6** | **Cắt theo ngữ nghĩa (Semantic Chunking)** | Tách câu và tính khoảng cách ngữ nghĩa (Cosine Distance) giữa các câu liên tiếp; ngắt chunk khi khoảng cách vượt ngưỡng (chuyển đổi chủ đề ý tứ). | Giữ trọn vẹn mạch tư duy của tác giả, không làm đứt đôi mối quan hệ nhân quả giữa các câu liền kề. |
+1. `routes.ask_agent()` validates `paper_id` against the registry, then calls `rag_graph.ask(question, paper_id, thread_id)` — the only public entry point into the agent.
+2. `rag_graph.py` runs a LangGraph `StateGraph` over `AgentState`:
+
+   ```
+   retrieve -> grade -> [insufficient?] -> rewrite -> retrieve -> grade -> ...
+                      -> [sufficient, or MAX_REWRITES=2 hit] -> generate -> END
+   ```
+
+   - `retrieve_node`: `HybridRetriever.retrieve()` — dense (ChromaDB, top-20) and sparse (BM25, top-20) search run independently, fused via unweighted `reciprocal_rank_fusion()` (`k=60`), then reranked (Cohere Rerank if `COHERE_API_KEY` set, else a local CrossEncoder) down to top-5.
+   - `grade_node`: one LLM call judges the whole batch of retrieved chunks sufficient/insufficient (not per-document).
+   - `rewrite_node`: LLM rewrites the question in isolation (no access to the retrieved context or why grading failed) and loops back to `retrieve`.
+   - `generate_node`: builds a prompt from the retrieved chunks + last 6 messages of conversation history, calls the LLM, and appends the turn to `messages`.
+3. Conversation memory is a `SqliteSaver` at `data/chat_memory.db`, keyed by `thread_id`.
+4. `routes.ask_agent()` reads `result["retrieved_chunks"]` to populate the `sources` field of the response (each item already carries `chunk_id`, `parent_section_name`, `text`).
+
+## Layers
+
+| Layer | Files | Responsibility |
+|---|---|---|
+| Ingestion | `app/ingestion/parser.py`, `chunker.py` | PDF → Markdown → `ParentSection`/`ChildChunk` |
+| Indexing / Retrieval | `app/indexing/vector_store.py`, `bm25_store.py`, `hybrid_retriever.py`, `reranker.py` | Dense + sparse index, fusion, reranking |
+| Agent | `app/agent/rag_graph.py` | LangGraph Corrective-RAG state machine |
+| LLM | `app/llm/llm_factory.py`, `prompt_templates.py` | Provider-agnostic LLM construction + prompts |
+| API | `app/api/main.py`, `routes.py`, `schemas.py` | FastAPI app, HTTP contracts |
+| Frontend | `streamlit_app.py` | Chat UI, calls the API over HTTP |
+| Config | `app/config.py` | `pydantic-settings` loaded from `.env`; also redirects `HF_HOME`/`OLLAMA_MODELS` into `cache/` on import |
+
+## Key data structures
+
+```python
+# app/ingestion/chunker.py
+@dataclass
+class ParentSection:
+    section_id: str
+    section_name: str
+    text: str
+
+@dataclass
+class ChildChunk:
+    chunk_id: str
+    parent_section_id: str
+    parent_section_name: str
+    paper_id: str
+    text: str
+    is_table: bool = False
+
+# app/agent/rag_graph.py
+class AgentState(TypedDict):
+    question: str
+    paper_id: str
+    retrieved_chunks: list       # list[dict], not LangChain Document
+    grade: str                   # "yes" | "no"
+    rewrite_count: int
+    answer: str
+    messages: Annotated[list, add_messages]
+```
+
+## State & persistence (current)
+
+| What | Where | Survives redeploy? |
+|---|---|---|
+| Uploaded PDFs | `data/*.pdf` | No (ephemeral disk on Railway) |
+| Parsed chunks cache | `data/chunks_cache/*.json` | No |
+| Dense vectors | `data/chroma_db/` (ChromaDB) | No |
+| Sparse index | `data/bm25_index/*.pkl` | No |
+| Paper registry | `data/papers_registry.json` | No |
+| Chat history | `data/chat_memory.db` (SQLite) | No |
+| Model download cache | `cache/huggingface/` | No |
+
+None of the above survives a Railway redeploy — this is the top item in `ROADMAP.md` Phase 2 (migrating everything to Supabase Postgres + pgvector).
+
+## Deployment topology
+
+- **API**: Railway, single Docker container (`Dockerfile`), FastAPI on `$PORT` (defaults to 8000 locally).
+- **UI**: Streamlit Community Cloud, separate deploy, talks to the API over HTTP (`API_BASE` resolved via env var → `st.secrets` → local fallback in `streamlit_app.py`).
+- **External APIs**: Groq (primary LLM), Gemini (fallback LLM + future embedding model), Cohere (rerank), HuggingFace Inference API (current embedding model).
+
+## Known gaps
+
+See `ROADMAP.md` sections 1–2 for the full list of architecture decisions and verified bugs already fixed. Highlights relevant to anyone reading this file for the first time:
+
+- "Parent-child chunking" only chunks — parent section expansion isn't implemented.
+- Single global ChromaDB collection; per-paper isolation is a metadata filter, not a partition.
+- `/upload` blocks the FastAPI event loop for the full parse+embed duration (sync work inside `async def`).
+- No persistence layer survives a redeploy (see table above).

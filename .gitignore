@@ -8,7 +8,8 @@ __pycache__/
 .env.*
 !.env.example
 
-# Môi trường ảo Python
+# Môi trường ảo Python (uv tao .venv theo mac dinh)
+.venv/
 venv/
 env/
 ENV/
@@ -16,6 +17,16 @@ ENV/
 # Thư mục cache model (HuggingFace / Ollama)
 cache/
 .cache/
+
+# Cache tool (ruff, pytest) - tu sinh lai, khong can commit
+.pytest_cache/
+.ruff_cache/
+
+# Skill-manager artifacts (caveman skill, cai qua /caveman) - khong
+# thuoc code cua app, chi la config cho Claude Code trong may nay.
+.agents/
+.claude/
+skills-lock.json
 
 # Dữ liệu cache và DB local
 data/chroma_db/
