@@ -1,7 +1,7 @@
 # 🗺️ ROADMAP — ArXiv Agentic RAG → Production-Grade
 
-> **Phiên bản:** 3.0 · **Cập nhật:** 2026-09-12
-> **Trạng thái:** MVP chạy được nhưng có 6 bug đã xác minh + không sống sót qua redeploy.
+> **Phiên bản:** 3.1 · **Cập nhật:** 2026-09-13
+> **Trạng thái:** Phase 1 hoàn thành (xem mục Phase 1 bên dưới). Đang chuẩn bị Phase 2.
 > **Mục tiêu:** sản phẩm chạy thật, có số đo chất lượng, kể được câu chuyện kỹ thuật mạnh trên CV.
 
 ---
@@ -32,38 +32,44 @@
 
 ---
 
-## 2. Sáu bug đã xác minh — thứ tự xử lý
+## 2. Bug đã xác minh — thứ tự xử lý
 
-| # | Bug | Vị trí | Quyết định |
+✅ Cả 7 bug dưới đây đã **sửa xong** trong Phase 1 (commit `f535a4e`, `0277d86`). Giữ bảng lại làm hồ sơ tra cứu — vị trí dòng có thể lệch so với code hiện tại.
+
+| # | Bug | Vị trí (lúc phát hiện) | Quyết định |
 |---|---|---|---|
-| 1 | `to_markdown(page_chunks=True)` trả `list[dict]` nhưng hàm typed `-> str`, gọi `len()` rồi return → downstream regex `TypeError` | `app/ingestion/parser.py:43` | **Sửa ngay**, nhưng **giữ** `page_chunks=True` và trả `list[dict]` — Phase 2 cần page number. Đừng revert về `str`. |
-| 2 | `_find_split_point` fallback #3: `space_pos = min(50, int(target*0.08))` trả index gần **đầu** chuỗi thay vì `rfind(" ")` gần `target` | `app/ingestion/chunker.py:89-91` | **Sửa ngay**, 1 dòng: `text.rfind(" ", int(target*0.9), target)`. |
-| 3 | `sources` **luôn rỗng**: đọc `result.get("documents")` nhưng `AgentState` chỉ có `retrieved_chunks` (dict, không phải `Document`) | `app/api/routes.py:275-283` | **Sửa ngay** — ảnh hưởng trực tiếp demo. |
-| 4 | Nhánh Gemini không bao giờ chạy khi có GROQ key; `_pick_best_groq_model()` gọi `models.list()` mỗi lần `get_llm()` (1 round-trip mạng / node); `langchain-google-genai` thiếu trong requirements | `app/llm/llm_factory.py:119-122, 138` | **Sửa ngay** — `@lru_cache`, fallback runtime Groq→Gemini khi 429, thêm dep. |
-| 5 | `_rerank_local` cắt `text[:512]` — 512 **ký tự** không phải token (mất ~65% chunk 800 ký tự); mutate `candidates` in-place | `app/indexing/reranker.py:93-114` | **Sửa 2 dòng ngay.** Phase 3 thay bằng Jina rerank API. |
-| 6 | `build_index()` reset `self._chunks_meta = []` → upload paper B **xoá sạch** BM25 của paper A, trong khi Chroma vẫn giữ → hybrid âm thầm tụt về dense-only | `app/indexing/bm25_store.py:111` | **Chỉ vá tạm** (~10 dòng: load meta cũ, merge theo `chunk_id`, rebuild). File này **bị xoá hoàn toàn ở Phase 2** — đừng refactor tử tế. |
+| 1 | `to_markdown(page_chunks=True)` trả `list[dict]` nhưng hàm typed `-> str`, gọi `len()` rồi return → downstream regex `TypeError` | `app/ingestion/parser.py:43` | **Đã sửa**, giữ `page_chunks=True`, nối lại thành 1 chuỗi markdown kèm marker `<!-- page:N -->` — Phase 2 sẽ trích số trang từ marker này. |
+| 2 | `_find_split_point` fallback #3: `space_pos = min(50, int(target*0.08))` trả index gần **đầu** chuỗi thay vì `rfind(" ")` gần `target` | `app/ingestion/chunker.py:89-91` | **Đã sửa** — `text.rfind(" ", int(target*0.08), target)`. Có test hồi quy trong `tests/test_chunker.py`. |
+| 3 | `sources` **luôn rỗng**: đọc `result.get("documents")` nhưng `AgentState` chỉ có `retrieved_chunks` (dict, không phải `Document`) | `app/api/routes.py:275-283` | **Đã sửa** — đọc đúng `retrieved_chunks`. |
+| 4 | Nhánh Gemini không bao giờ chạy khi có GROQ key; `_pick_best_groq_model()` gọi `models.list()` mỗi lần `get_llm()` (1 round-trip mạng / node); `langchain-google-genai` thiếu trong requirements | `app/llm/llm_factory.py:119-122, 138` | **Đã sửa** — `@lru_cache` cho cả hai hàm, fallback runtime Groq→Gemini qua `.with_fallbacks()` khi Groq lỗi, thêm dep. |
+| 5 | `_rerank_local` cắt `text[:512]` — 512 **ký tự** không phải token (mất ~65% chunk 800 ký tự); mutate `candidates` in-place | `app/indexing/reranker.py:93-114` | **Đã sửa** — bỏ cắt ký tự (để tokenizer tự truncate), làm việc trên bản sao thay vì mutate. |
+| 6 | `build_index()` reset `self._chunks_meta = []` → upload paper B **xoá sạch** BM25 của paper A, trong khi Chroma vẫn giữ → hybrid âm thầm tụt về dense-only | `app/indexing/bm25_store.py:111` | **Đã vá tạm** — merge theo `chunk_id` với corpus đã load từ disk. File này vẫn **sẽ bị xoá hoàn toàn ở Phase 2** khi chuyển sang Postgres FTS — đừng refactor tử tế thêm ở đây. |
+| 7 *(phát hiện thêm khi verify Phase 1)* | `_get_checkpointer()` import `langgraph.checkpoint.sqlite`, nhưng `langgraph-checkpoint-sqlite` **chưa từng khai báo** trong `requirements.txt`. `except Exception` rộng nuốt `ModuleNotFoundError` → âm thầm fallback `MemorySaver` → **lịch sử chat mất mỗi lần restart process**, không chỉ khi Railway redeploy như ghi ở trên. | `app/agent/rag_graph.py` + `requirements.txt` | **Đã sửa** — thêm dependency, verify bằng cách import trực tiếp: trước fix in ra `[WARN] SqliteSaver loi`, sau fix in ra `[INFO] Checkpointer: SqliteSaver`. |
 
 ---
 
-## Phase 1 — Cầm máu + nền kỹ thuật (tuần 1–2)
+## Phase 1 — Cầm máu + nền kỹ thuật ✅ HOÀN THÀNH (2026-09-13)
 
 **Mục tiêu:** pipeline chạy lại end-to-end; repo trông như repo của kỹ sư.
 **CV claim:** *"engineering hygiene: typed config, pinned deps, CI, test suite"*
 
-### Việc cần làm
-- [ ] Sửa bug #1, #2, #3, #4, #5; vá tạm #6.
-- [ ] Thêm `pyproject.toml` (ruff + pytest config), `.pre-commit-config.yaml`, `Makefile` (`make test/lint/run/eval`), `.dockerignore`.
-- [ ] Pin toàn bộ `requirements.txt`. Thêm `huggingface_hub`, `numpy` (đang import nhưng **thiếu khai báo**), `langchain-google-genai`, `tenacity`. Xoá `upstash-redis`, `langgraph-checkpoint-redis`.
-- [ ] `Dockerfile`: `CMD ["sh","-c","uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]` (kết thúc 4 commit churn về port), non-root user, `HEALTHCHECK`, multi-stage.
-- [ ] `tests/` cho 4 hàm thuần không cần network: `split_parent_sections`, `_find_split_point`, `reciprocal_rank_fusion` (`hybrid_retriever.py:41`), `tokenize` (`bm25_store.py:36`).
-- [ ] GitHub Actions: ruff + pytest.
-- [ ] `README.md` (hiện **không tồn tại**) — sơ đồ kiến trúc + cách chạy.
+### Việc đã làm
+- [x] Sửa bug #1, #2, #3, #4, #5, #7; vá tạm #6 (xem mục 2).
+- [x] `pyproject.toml` (ruff + pytest config), `.pre-commit-config.yaml`, `Makefile` (`make install/run/ui/test/lint/fmt/docker-build/docker-run`), `.dockerignore`.
+- [x] Pin toàn bộ `requirements.txt` theo `==` (không phải `>=`) — verify 2 lần: venv đang dùng + 1 venv sạch cài lại từ đầu chỉ bằng file này, cả 2 đều pass test + import toàn bộ module + compile được LangGraph. Thêm `huggingface_hub`, `numpy`, `langchain-google-genai`, `langgraph-checkpoint-sqlite` (bug #7). Xoá `upstash-redis`, `langgraph-checkpoint-redis` (chưa từng dùng).
+- [x] `Dockerfile`: multi-stage (build-essential chỉ ở builder stage), `CMD` dùng `${PORT:-8000}` thay vì hardcode, non-root user (`appuser`), `HEALTHCHECK`.
+- [x] `tests/`: 20 test cho 4 hàm thuần — `split_parent_sections`, `_find_split_point` (có test hồi quy cho bug #2), `reciprocal_rank_fusion`, `tokenize`.
+- [x] GitHub Actions (`.github/workflows/ci.yml`): ruff + pytest trên mọi push/PR vào `main`.
+- [x] `README.md`, `CLAUDE.md`, `docs/Architecture.md` (viết mới — bản cũ chỉ là bảng đề xuất, không phải tài liệu kiến trúc thật).
+- [x] Dọn dẹp repo: `.gitignore` thiếu `.venv/` (1.5GB!)/`.pytest_cache/`/`.ruff_cache/`, xoá cache/pycache rác, gộp trùng lặp thư mục skill (`.agents/` trùng `.claude/skills/`).
 
 ### Kiểm chứng
-`make test` xanh · CI xanh · `docker run -e PORT=9000` lên đúng cổng · upload 1 PDF → `/ask` trả `sources` **khác rỗng**.
+- `make test` xanh (20/20), `ruff check .` sạch — verify trong CI lẫn local.
+- `requirements.txt` verify trên venv sạch hoàn toàn (không rely vào package đã cài từ trước).
+- **Chưa tự verify được** (cần Docker daemon / API key thật, không có sẵn trong môi trường viết code): `docker build`/`docker run` với `$PORT` tuỳ chỉnh + healthcheck; upload PDF thật → `/ask` thật kiểm tra `sources` khác rỗng. **→ bạn tự chạy theo hướng dẫn đã đưa, báo lại nếu có lỗi.**
 
-### Kiến thức cần học
-pytest fixtures/parametrize · ruff rule sets · Docker multi-stage & layer caching · 12-factor config.
+### Kiến thức đã áp dụng
+pytest fixtures/class-based test grouping · ruff rule selection & per-file-ignore · Docker multi-stage build · `lru_cache` + LangChain `.with_fallbacks()` cho runtime resilience.
 
 ---
 

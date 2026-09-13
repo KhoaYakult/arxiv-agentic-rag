@@ -6,35 +6,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ArXiv Agentic RAG: a Corrective-RAG (CRAG) question-answering system over scientific PDF papers. Pipeline: PDF → parse to Markdown → parent-child chunking → hybrid retrieval (dense ChromaDB + sparse BM25) → rerank → LangGraph self-reflective agent (retrieve → grade → rewrite-if-insufficient → generate) → FastAPI backend + Streamlit frontend. Deployed on Railway (API) / Streamlit Cloud (UI).
 
-The project is mid-upgrade from MVP to a production-grade portfolio piece. **Read `docs/ROADMAP.md` before making architectural changes** — it defines the current phase, the target architecture (migrating storage to Supabase Postgres + pgvector, embeddings to Gemini, BM25 to Postgres FTS), and which known bugs are "fix now" vs. "will be deleted in Phase 2, don't over-engineer a patch." Code comments and docstrings in this repo are written in Vietnamese (mixed with English technical terms) — follow that convention when editing existing files.
+The project is mid-upgrade from MVP to a production-grade portfolio piece (Phase 1 done, see `docs/ROADMAP.md`). **Read `docs/ROADMAP.md` before making architectural changes** — it defines the current phase, the target architecture (migrating storage to Supabase Postgres + pgvector, embeddings to Gemini, BM25 to Postgres FTS), and which known bugs are "fix now" vs. "will be deleted in Phase 2, don't over-engineer a patch." For a system-level reference (data flow, diagrams, what state does/doesn't survive a redeploy), see `docs/Architecture.md`. Code comments and docstrings in this repo are written in Vietnamese (mixed with English technical terms) — follow that convention when editing existing files.
 
 ## Commands
 
-There is no test suite, linter config, or Makefile yet (this is one of the Phase 1 roadmap items — check `docs/ROADMAP.md` before assuming one exists).
-
 ```bash
-# Install
+# Install (requirements.txt is pinned with == — see its header comment
+# before hand-editing a version)
 pip install -r requirements.txt
 
 # Run the API (from repo root; auto-reloads)
-uvicorn app.api.main:app --reload --port 8000
-# or: python app/api/main.py
+make run
+# same as: uvicorn app.api.main:app --reload --port 8000
 # Swagger UI: http://localhost:8000/docs
 
 # Run the Streamlit UI (separate process, calls the API over HTTP)
-streamlit run streamlit_app.py
+make ui   # same as: streamlit run streamlit_app.py
+
+# Tests (20 unit tests, no network/API keys required — see tests/)
+make test   # same as: python -m pytest tests/ -v
+
+# Lint
+make lint          # ruff check .
+make fmt           # ruff check . --fix
 
 # Ad-hoc module tests (each of these has an `if __name__ == "__main__":` block
-# that exercises the module directly against live APIs / a sample PDF in data/)
+# that exercises the module directly against live APIs / a sample PDF in data/
+# — different from the tests/ suite, which is network-free)
 python app/ingestion/parser.py
 python app/ingestion/chunker.py
 python app/llm/llm_factory.py
 python app/agent/rag_graph.py
 
 # Docker
-docker build -t arxiv-rag .
-docker run -p 8000:8000 --env-file .env arxiv-rag
+make docker-build   # same as: docker build -t arxiv-rag .
+make docker-run     # same as: docker run -p 8000:8000 --env-file .env arxiv-rag
 ```
+
+CI (`.github/workflows/ci.yml`) runs `ruff check .` + `pytest tests/` on every push/PR to `main`. `pyproject.toml` holds the ruff/pytest config; note the `ignore` list there documents *why* `E402`/`B904`/`B008` are off (repo-wide conventions, not oversights) — read it before "fixing" one of those as a drive-by.
 
 Config comes from `.env` (see `.env.example` for required keys: `GROQ_API_KEY`, `GEMINI_API_KEY`, `COHERE_API_KEY`, `HF_TOKEN`). `app/config.py` loads it via `pydantic-settings`; import `from app.config import settings` rather than reading env vars directly.
 
@@ -55,7 +64,7 @@ Config comes from `.env` (see `.env.example` for required keys: `GROQ_API_KEY`, 
 - `reranker.py`: `RerankerManager` picks Cohere Rerank (`rerank-english-v3.0`) if `COHERE_API_KEY` is set, otherwise falls back to a local `sentence-transformers` CrossEncoder (`ms-marco-MiniLM-L-6-v2`, `max_length=512`). Don't pre-truncate chunk text by character count before handing it to the CrossEncoder — let the tokenizer's own `max_length` truncation handle it (a previous bug did character-truncation to 512 chars, discarding most of an 800-char chunk).
 
 ### Agent (`app/agent/rag_graph.py`)
-LangGraph `StateGraph` over `AgentState` (question, paper_id, retrieved_chunks, grade, rewrite_count, answer, messages). Flow: `retrieve → grade → (rewrite → retrieve)* → generate`, capped at `MAX_REWRITES = 2`. `grade_node` does a single whole-batch yes/no LLM call over all retrieved chunks (not per-document). Conversation memory uses `SqliteSaver` at `data/chat_memory.db`, keyed by `thread_id` — this is on ephemeral disk in the current deploy, so history does not survive a Railway redeploy (tracked as a roadmap item). The single public entry point other modules should use is `ask(question, paper_id, thread_id)` — don't call the graph nodes directly.
+LangGraph `StateGraph` over `AgentState` (question, paper_id, retrieved_chunks, grade, rewrite_count, answer, messages). Flow: `retrieve → grade → (rewrite → retrieve)* → generate`, capped at `MAX_REWRITES = 2`. `grade_node` does a single whole-batch yes/no LLM call over all retrieved chunks (not per-document). Conversation memory uses `SqliteSaver` at `data/chat_memory.db`, keyed by `thread_id` — this is on ephemeral disk in the current deploy, so history does not survive a Railway redeploy (tracked as a roadmap item). `_get_checkpointer()` needs the `langgraph-checkpoint-sqlite` package (in `requirements.txt`) for this — if it's ever missing, the broad `except Exception` around the import silently falls back to in-memory `MemorySaver` instead of erroring, which previously went unnoticed and lost chat history on every process restart, not just redeploys. The single public entry point other modules should use is `ask(question, paper_id, thread_id)` — don't call the graph nodes directly.
 
 ### LLM factory (`app/llm/llm_factory.py`)
 `get_llm(provider=None, temperature=0.2, max_tokens=5096)` is the only way other modules should construct an LLM — never import `ChatGroq`/`ChatGoogleGenerativeAI`/`ChatOllama` directly elsewhere. Provider auto-detect order: Groq → Gemini → Ollama, based on which API key is set in `.env`. When Groq is auto-selected and `GEMINI_API_KEY` is also present, the returned LLM is wrapped with `.with_fallbacks([gemini_llm])` so a Groq runtime failure (rate limit, decommissioned model, timeout) transparently retries on Gemini. `get_llm()` and the internal Groq model-picker (`_pick_best_groq_model`, which calls the Groq API to pick the best currently-available model from a hardcoded preference list) are both `@lru_cache`d — do not add per-call state that would need to vary across calls without also reconsidering the cache.
