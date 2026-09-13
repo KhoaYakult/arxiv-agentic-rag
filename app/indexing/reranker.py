@@ -20,7 +20,6 @@ if str(BASE_DIR) not in sys.path:
 
 from app.config import settings
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # RERANKER MANAGER
 # ──────────────────────────────────────────────────────────────────────────────
@@ -110,7 +109,7 @@ class RerankerManager:
         # Khong mutate list/dict cua caller: lam viec tren ban sao.
         scored = [
             {**candidate, "rerank_score": float(score)}
-            for candidate, score in zip(candidates, scores)
+            for candidate, score in zip(candidates, scores, strict=True)
         ]
 
         # Sắp xếp theo rerank_score giảm dần (cao hơn = liên quan hơn)
@@ -165,8 +164,8 @@ class RerankerManager:
 # ──────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    from app.ingestion.chunker import load_chunks_from_file
     from app.indexing.bm25_store import BM25StoreManager
+    from app.ingestion.chunker import load_chunks_from_file
 
     PAPER_ID = "test_cortex_ode"
 
@@ -179,7 +178,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     # 2. Dùng BM25 để lấy Top-10 candidates (giả lập output của Hybrid Search)
-    print(f"\n[INFO] Buoc 1: Lay Top-10 candidates bang BM25...", flush=True)
+    print("\n[INFO] Buoc 1: Lay Top-10 candidates bang BM25...", flush=True)
     bm25 = BM25StoreManager()
     if bm25._bm25 is None:
         print("[INFO] Chua co BM25 Index, dang xay dung...", flush=True)
@@ -188,7 +187,7 @@ if __name__ == "__main__":
     test_query = "What is the Dice coefficient of CortexODE compared to FreeSurfer?"
     candidates = bm25.search(query=test_query, paper_id=PAPER_ID, top_k=10)
 
-    print(f"\n[TRUOC RERANK] Top-5 tu BM25:", flush=True)
+    print("\n[TRUOC RERANK] Top-5 tu BM25:", flush=True)
     print("=" * 60, flush=True)
     for c in candidates[:5]:
         print(f"  BM25 Rank {c['bm25_rank']} | Score: {c['score']:.4f} | Section: {c['parent_section_name']}", flush=True)
@@ -196,11 +195,11 @@ if __name__ == "__main__":
         print("-" * 60, flush=True)
 
     # 3. Áp dụng Reranker
-    print(f"\n[INFO] Buoc 2: Ap dung Reranker...", flush=True)
+    print("\n[INFO] Buoc 2: Ap dung Reranker...", flush=True)
     reranker = RerankerManager()
     reranked = reranker.rerank(query=test_query, candidates=candidates, top_k=5)
 
-    print(f"\n[SAU RERANK] Top-5 sau khi Reranker sap xep lai:", flush=True)
+    print("\n[SAU RERANK] Top-5 sau khi Reranker sap xep lai:", flush=True)
     print("=" * 60, flush=True)
     for r in reranked:
         print(f"  Rerank #{r['rerank_rank']} | Score: {r['rerank_score']:.4f} | Section: {r['parent_section_name']}", flush=True)
@@ -209,7 +208,7 @@ if __name__ == "__main__":
         print("-" * 60, flush=True)
 
     # 4. Phân tích: Reranker đã đổi thứ hạng những chunk nào?
-    print(f"\n[PHAN TICH THAY DOI THU HANG]", flush=True)
+    print("\n[PHAN TICH THAY DOI THU HANG]", flush=True)
     bm25_rank_map = {c["chunk_id"]: c["bm25_rank"] for c in candidates}
     for r in reranked:
         old_rank = bm25_rank_map.get(r["chunk_id"], "?")

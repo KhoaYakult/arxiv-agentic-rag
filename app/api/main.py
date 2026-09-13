@@ -30,7 +30,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # KHOI TAO FASTAPI APP
 # ──────────────────────────────────────────────────────────────────────────────
@@ -89,6 +88,7 @@ app.include_router(router, prefix="/api/v1")
 # ──────────────────────────────────────────────────────────────────────────────
 
 from fastapi.responses import RedirectResponse
+
 
 @app.get("/", include_in_schema=False)
 def root():

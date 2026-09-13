@@ -40,7 +40,7 @@ class HuggingFaceAPIEmbeddings:
 
         self.model_name = model_name
         self.client = InferenceClient(token=api_token or None)
-        print(f"[INFO] HuggingFace Inference API Embeddings san sang.", flush=True)
+        print("[INFO] HuggingFace Inference API Embeddings san sang.", flush=True)
         print(f"[INFO] Model: {model_name}", flush=True)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

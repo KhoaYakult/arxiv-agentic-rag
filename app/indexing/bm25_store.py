@@ -85,7 +85,7 @@ class BM25StoreManager:
             pickle.dump(self._bm25, f)
         with open(BM25_CHUNKS_FILE, "wb") as f:
             pickle.dump(self._chunks_meta, f)
-        print(f"[SUCCESS] Luu BM25 Index xuong o D thanh cong!", flush=True)
+        print("[SUCCESS] Luu BM25 Index xuong o D thanh cong!", flush=True)
 
     def build_index(self, chunks: list[ChildChunk]) -> None:
         """
@@ -240,9 +240,9 @@ if __name__ == "__main__":
 
         sections, chunks = process_paper_ingestion(sample_pdfs[0], paper_id=PAPER_ID)
         save_chunks_to_file(chunks, paper_id=PAPER_ID)
-        print(f"[SUCCESS] Da luu cache. Tu lan sau se load truc tiep, khong can parse PDF.", flush=True)
+        print("[SUCCESS] Da luu cache. Tu lan sau se load truc tiep, khong can parse PDF.", flush=True)
     else:
-        print(f"[INFO] Su dung chunks tu cache (khong parse lai PDF).", flush=True)
+        print("[INFO] Su dung chunks tu cache (khong parse lai PDF).", flush=True)
 
     # 2. Xây dựng BM25 Index
     print(f"\n[INFO] Buoc 2: Xay dung BM25 Index tu {len(chunks)} chunks...", flush=True)

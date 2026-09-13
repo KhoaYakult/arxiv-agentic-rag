@@ -13,10 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from app.config import settings
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import add_messages
 
+from app.config import settings
 
 # =============================================================================
 # STATE
@@ -54,6 +54,7 @@ def retrieve_node(state: AgentState) -> dict:
 def grade_node(state: AgentState) -> dict:
     """LLM cham diem context co du de tra loi khong."""
     from langchain_core.prompts import ChatPromptTemplate
+
     from app.llm.llm_factory import get_llm
     from app.llm.prompt_templates import GRADE_DOCS_TEMPLATE
 
@@ -72,6 +73,7 @@ def grade_node(state: AgentState) -> dict:
 def rewrite_node(state: AgentState) -> dict:
     """Viet lai cau hoi ro rang hon."""
     from langchain_core.prompts import ChatPromptTemplate
+
     from app.llm.llm_factory import get_llm
     from app.llm.prompt_templates import REWRITE_QUERY_TEMPLATE
 
@@ -86,6 +88,7 @@ def rewrite_node(state: AgentState) -> dict:
 def generate_node(state: AgentState) -> dict:
     """LLM tong hop cau tra loi. Tu dong lay chat history tu messages."""
     from langchain_core.prompts import ChatPromptTemplate
+
     from app.llm.llm_factory import get_llm
     from app.llm.prompt_templates import RAG_ANSWER_TEMPLATE
 
@@ -148,6 +151,7 @@ def decide_after_grade(state: AgentState) -> str:
 def _get_checkpointer():
     try:
         import sqlite3
+
         from langgraph.checkpoint.sqlite import SqliteSaver
         db_path = str(settings.data_dir / "chat_memory.db")
         conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -225,7 +229,7 @@ if __name__ == "__main__":
     query1 = "What is CortexODE and how does it use neural ODE for surface reconstruction?"
     print(f"\n[TURN 1] {query1}", flush=True)
     r1 = ask(question=query1, paper_id=PAPER_ID, thread_id=THREAD_ID)
-    print(f"\n[KET QUA TURN 1]", flush=True)
+    print("\n[KET QUA TURN 1]", flush=True)
     print(f"  Grade       : {r1['grade']}", flush=True)
     print(f"  Rewrite     : {r1['rewrite_count']}", flush=True)
     print(f"  Messages    : {len(r1.get('messages', []))}", flush=True)
@@ -234,9 +238,9 @@ if __name__ == "__main__":
     query2 = "What are the limitations of this approach?"
     print(f"\n{'=' * 60}", flush=True)
     print(f"[TURN 2] {query2}", flush=True)
-    print(f"  (Agent tu dong nho Turn 1 qua thread_id)", flush=True)
+    print("  (Agent tu dong nho Turn 1 qua thread_id)", flush=True)
     r2 = ask(question=query2, paper_id=PAPER_ID, thread_id=THREAD_ID)
-    print(f"\n[KET QUA TURN 2]", flush=True)
+    print("\n[KET QUA TURN 2]", flush=True)
     print(f"  Rewrite     : {r2['rewrite_count']}", flush=True)
     print(f"  Messages    : {len(r2.get('messages', []))} (nen la 4)", flush=True)
     print(f"  Tra loi:\n{r2['answer']}", flush=True)

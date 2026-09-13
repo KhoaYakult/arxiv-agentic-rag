@@ -1,0 +1,17 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.7
+    hooks:
+      - id: ruff
+        args: [--fix]
+        # ruff-format bi bo qua co y: repo hien co ~1400 dong se doi neu format
+        # toan bo mot lan - qua lon de lam drive-by trong Phase 1. Bat lai khi
+        # co 1 PR rieng danh cho reformat toan repo.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict

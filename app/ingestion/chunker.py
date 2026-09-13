@@ -19,7 +19,6 @@ if str(BASE_DIR) not in sys.path:
 
 from app.config import settings
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # DATA CLASSES
 # ──────────────────────────────────────────────────────────────────────────────
@@ -335,7 +334,7 @@ def load_chunks_from_file(paper_id: str) -> list[ChildChunk] | None:
     if not out_path.exists():
         return None
 
-    with open(out_path, "r", encoding="utf-8") as f:
+    with open(out_path, encoding="utf-8") as f:
         data = json.load(f)
 
     chunks = [
@@ -377,7 +376,7 @@ if __name__ == "__main__":
             save_chunks_to_file(chunks, paper_id=PAPER_ID)
 
             first = chunks[0]
-            print(f"\n[XEM TRUOC CHILD CHUNK DAU TIEN]")
+            print("\n[XEM TRUOC CHILD CHUNK DAU TIEN]")
             print(f"  Chunk ID  : {first.chunk_id}")
             print(f"  Section   : {first.parent_section_name}")
             print(f"  Is Table  : {first.is_table}")

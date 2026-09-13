@@ -1,0 +1,36 @@
+[project]
+name = "arxiv-agentic-rag"
+version = "0.1.0"
+description = "Corrective-RAG question answering over ArXiv PDF papers"
+requires-python = ">=3.11"
+
+# Runtime deps stay in requirements.txt (used directly by Dockerfile/pip).
+# This file only holds tool config + dev tooling.
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6.0",
+    "pytest>=8.0.0",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = ["data", "cache", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501", # line length: nhieu docstring/comment tieng Viet dai, khong dang de bat
+    "E402", # moi module co sys.path.insert(...) truoc import de ho tro chay `python app/x/y.py` truc tiep - day la quy uoc co chu dich cua repo, khong phai loi
+    "B904", # raise...from e trong except: cac endpoint FastAPI hien tai co nhieu cho raise HTTPException(...) khong chain - se don dep khi refactor /upload o Phase 2 (BackgroundTasks), khong sua rai rac o day
+]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI dung File(...)/Form(...)/Depends(...) lam gia tri mac dinh - day la
+# idiom chuan cua framework, khong phai bug "mutable default argument".
+"app/api/routes.py" = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

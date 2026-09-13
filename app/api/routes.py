@@ -51,7 +51,7 @@ _PAPERS_REGISTRY = settings.data_dir / "papers_registry.json"
 def _load_registry() -> dict[str, dict]:
     """Doc registry tu file JSON. Tra ve {} neu file chua ton tai."""
     if _PAPERS_REGISTRY.exists():
-        with open(_PAPERS_REGISTRY, "r", encoding="utf-8") as f:
+        with open(_PAPERS_REGISTRY, encoding="utf-8") as f:
             return json.load(f)
     return {}
 
@@ -168,9 +168,9 @@ async def upload_paper(
 
     # ── Parse PDF + Chunk ──
     try:
-        from app.ingestion.chunker import load_chunks_from_file, process_paper_ingestion
         from app.indexing.bm25_store import BM25StoreManager
         from app.indexing.vector_store import VectorStoreManager
+        from app.ingestion.chunker import load_chunks_from_file, process_paper_ingestion
 
         # Thu load tu cache truoc (neu da xu ly roi)
         chunks = load_chunks_from_file(paper_id)

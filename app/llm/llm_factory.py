@@ -29,7 +29,6 @@ if str(BASE_DIR) not in sys.path:
 
 from app.config import settings
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # AUTO MODEL PICKER — Tự động chọn model Groq đang hoạt động
 # ──────────────────────────────────────────────────────────────────────────────
@@ -232,7 +231,7 @@ if __name__ == "__main__":
     # Output: AIMessage object chua .content (cau tra loi).
     print("\n[TEST 2] Gui cau hoi don gian...", flush=True)
     response = llm.invoke("What is 2 + 2? Answer in one word.")
-    print(f"  Cau hoi : What is 2 + 2?", flush=True)
+    print("  Cau hoi : What is 2 + 2?", flush=True)
     print(f"  Tra loi : {response.content}", flush=True)
 
     # ── Test 3: Gia lap RAG (context + cau hoi) ──

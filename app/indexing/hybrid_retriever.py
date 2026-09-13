@@ -28,7 +28,6 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from app.config import settings
-from app.ingestion.chunker import ChildChunk
 
 # So luong ket qua lay tu moi retriever o giai doan 1 (First-Stage)
 FIRST_STAGE_K = 20
@@ -204,8 +203,7 @@ class HybridRetriever:
 # ──────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    from app.ingestion.chunker import load_chunks_from_file, save_chunks_to_file
-    from app.ingestion.chunker import process_paper_ingestion
+    from app.ingestion.chunker import load_chunks_from_file, process_paper_ingestion, save_chunks_to_file
 
     PAPER_ID = "test_cortex_ode"
 
