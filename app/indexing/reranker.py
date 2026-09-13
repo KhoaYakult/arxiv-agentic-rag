@@ -99,23 +99,26 @@ class RerankerManager:
         """
         model = self._get_cross_encoder()
 
-        # Tạo danh sách cặp [query, chunk_text] để CrossEncoder chấm điểm
-        # Giới hạn độ dài chunk text ở 512 ký tự để tránh vượt max_length
-        pairs = [[query, c["text"][:512]] for c in candidates]
+        # Khong tu cat text theo ky tu o day: CrossEncoder(max_length=512) da tu
+        # truncate theo TOKEN o tang tokenizer. Cat truoc theo 512 KY TU (nhu ban
+        # cu) lam mat ~60-70% mot chunk 800 ky tu truoc khi model kip thay.
+        pairs = [[query, c["text"]] for c in candidates]
 
         print(f"[INFO] CrossEncoder dang cham diem {len(pairs)} candidates...", flush=True)
         scores = model.predict(pairs, show_progress_bar=False)
 
-        # Gắn rerank score vào từng candidate
-        for i, score in enumerate(scores):
-            candidates[i]["rerank_score"] = float(score)
+        # Khong mutate list/dict cua caller: lam viec tren ban sao.
+        scored = [
+            {**candidate, "rerank_score": float(score)}
+            for candidate, score in zip(candidates, scores)
+        ]
 
         # Sắp xếp theo rerank_score giảm dần (cao hơn = liên quan hơn)
-        candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
+        scored.sort(key=lambda x: x["rerank_score"], reverse=True)
 
         # Gán lại thứ hạng sau khi rerank và trả về top_k
         results = []
-        for rank, item in enumerate(candidates[:top_k], 1):
+        for rank, item in enumerate(scored[:top_k], 1):
             item["rerank_rank"] = rank
             results.append(item)
 

@@ -272,14 +272,14 @@ def ask_agent(body: AskRequest) -> AskResponse:
     answer = messages[-1].content if messages else "Khong co cau tra loi."
 
     # Trich xuat source chunks de hien thi tren UI
-    raw_docs = result.get("documents", [])
+    raw_chunks = result.get("retrieved_chunks", [])
     sources = [
         SourceChunk(
-            chunk_id=doc.metadata.get("chunk_id", "unknown"),
-            section=doc.metadata.get("section", "Unknown section"),
-            content_preview=doc.page_content[:150],
+            chunk_id=chunk.get("chunk_id", "unknown"),
+            section=chunk.get("parent_section_name", "Unknown section"),
+            content_preview=chunk.get("text", "")[:150],
         )
-        for doc in raw_docs
+        for chunk in raw_chunks
     ]
 
     return AskResponse(

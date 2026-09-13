@@ -10,6 +10,8 @@ langchain-text-splitters>=0.2.0
 
 # Embedding & Vector Database
 sentence-transformers>=2.2.2
+huggingface_hub>=0.23.0
+numpy>=1.26.0
 langchain-community>=0.2.0
 langchain-chroma>=0.1.0
 chromadb>=0.5.0
@@ -19,12 +21,9 @@ cohere>=5.0.0
 # LLM & Agentic Orchestration
 langchain-core>=0.2.0
 langchain-groq>=0.1.0
+langchain-google-genai>=1.0.0
 langchain-ollama>=0.1.0
 langgraph>=0.1.0
-
-# Cloud Memory: Upstash Redis (optional - fallback to MemorySaver if not configured)
-upstash-redis>=1.0.0
-langgraph-checkpoint-redis>=0.0.1
 
 # API & Web UI
 fastapi>=0.110.0

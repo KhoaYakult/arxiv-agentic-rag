@@ -19,6 +19,7 @@ Cach su dung:
 """
 
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 # Tu dong them thu muc goc du an vao sys.path khi chay file truc tiep
@@ -55,6 +56,7 @@ _GROQ_PREFERRED_MODELS = [
 ]
 
 
+@lru_cache(maxsize=8)
 def _pick_best_groq_model(api_key: str) -> str:
     """
     Hỏi Groq API để lấy danh sách model đang THỰC SỰ hoạt động,
@@ -62,6 +64,10 @@ def _pick_best_groq_model(api_key: str) -> str:
 
     Nếu API không trả lời được (mất mạng, key lỗi...), fallback về
     giá trị trong config.py (settings.groq_model_name).
+
+    @lru_cache: tranh goi lai Groq API (models.list()) moi lan get_llm()
+    duoc goi - moi node trong LangGraph goi get_llm() rieng, neu khong cache
+    se ton 1 round-trip mang thua cho MOI node cua MOI cau hoi.
     """
     try:
         from groq import Groq
@@ -90,40 +96,8 @@ def _pick_best_groq_model(api_key: str) -> str:
 # FACTORY FUNCTION
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_llm(
-    provider: str | None = None,
-    temperature: float = 0.2,
-    max_tokens: int = 5096,
-):
-    """
-    Factory function: khoi tao LLM tu provider bat ky.
-
-    Args:
-        provider:    "groq", "gemini", "ollama", hoac None (tu dong detect tu .env).
-        temperature: Muc sang tao (0 = chinh xac nhat, 1 = sang tao nhat).
-                     Dat 0 cho RAG vi ta can cau tra loi chinh xac, khong can sang tao.
-        max_tokens:  Gioi han do dai cau tra loi (1024 tokens ~ 750 tu tieng Anh).
-
-    Returns:
-        BaseChatModel: Instance LLM san sang goi .invoke() hoac dung trong LangGraph.
-                       Giao dien (interface) giong nhau bat ke provider nao.
-
-    Auto-detect logic (khi provider=None):
-        1. Co GROQ_API_KEY   → dung Groq  (tu dong chon model dang hoat dong)
-        2. Co GEMINI_API_KEY → dung Gemini
-        3. Khong co API key  → fallback ve Ollama local
-    """
-
-    # ── TU DONG DETECT PROVIDER NEU KHONG TRUYEN VAO ──
-    if provider is None:
-        if settings.groq_api_key:
-            provider = "groq"
-        elif settings.gemini_api_key:
-            provider = "gemini"
-        else:
-            provider = "ollama"
-
-    provider = provider.lower().strip()
+def _build_llm(provider: str, temperature: float, max_tokens: int):
+    """Khoi tao 1 instance LLM cho dung 1 provider cu the (khong auto-detect, khong fallback)."""
 
     # ── GROQ CLOUD ──
     if provider == "groq":
@@ -144,9 +118,10 @@ def get_llm(
             max_tokens=max_tokens,
         )
         print(f"[SUCCESS] LLM san sang: Groq/{chosen_model}", flush=True)
+        return llm
 
     # ── GOOGLE GEMINI ──
-    elif provider == "gemini":
+    if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         if not settings.gemini_api_key:
@@ -162,9 +137,10 @@ def get_llm(
             max_output_tokens=max_tokens,
         )
         print("[SUCCESS] LLM san sang: Gemini/gemini-2.0-flash", flush=True)
+        return llm
 
     # ── OLLAMA LOCAL ──
-    elif provider == "ollama":
+    if provider == "ollama":
         from langchain_ollama import ChatOllama
 
         llm = ChatOllama(
@@ -173,12 +149,66 @@ def get_llm(
             num_predict=max_tokens,
         )
         print(f"[SUCCESS] LLM san sang: Ollama/{settings.ollama_llm_model} (local)", flush=True)
+        return llm
 
-    else:
-        raise ValueError(
-            f"Provider '{provider}' khong duoc ho tro. "
-            f"Chon: 'groq', 'gemini', hoac 'ollama'."
-        )
+    raise ValueError(
+        f"Provider '{provider}' khong duoc ho tro. "
+        f"Chon: 'groq', 'gemini', hoac 'ollama'."
+    )
+
+
+@lru_cache(maxsize=8)
+def get_llm(
+    provider: str | None = None,
+    temperature: float = 0.2,
+    max_tokens: int = 5096,
+):
+    """
+    Factory function: khoi tao LLM tu provider bat ky.
+
+    Args:
+        provider:    "groq", "gemini", "ollama", hoac None (tu dong detect tu .env).
+        temperature: Muc sang tao (0 = chinh xac nhat, 1 = sang tao nhat).
+                     Dat 0 cho RAG vi ta can cau tra loi chinh xac, khong can sang tao.
+        max_tokens:  Gioi han do dai cau tra loi (1024 tokens ~ 750 tu tieng Anh).
+
+    Returns:
+        BaseChatModel: Instance LLM san sang goi .invoke() hoac dung trong LangGraph.
+                       Giao dien (interface) giong nhau bat ke provider nao.
+                       Neu provider tu dong chon la Groq va co san GEMINI_API_KEY,
+                       LLM tra ve se tu dong fallback sang Gemini khi Groq loi luc invoke
+                       (vd: rate limit 429, timeout, model decommissioned).
+
+    Auto-detect logic (khi provider=None):
+        1. Co GROQ_API_KEY   → dung Groq  (tu dong chon model dang hoat dong)
+        2. Co GEMINI_API_KEY → dung Gemini
+        3. Khong co API key  → fallback ve Ollama local
+
+    @lru_cache: tat ca cac node trong LangGraph (grade/rewrite/generate) goi
+    get_llm() voi cung tham so mac dinh -> tranh khoi tao lai client + wrap
+    fallback moi lan invoke.
+    """
+    auto_detected = provider is None
+
+    # ── TU DONG DETECT PROVIDER NEU KHONG TRUYEN VAO ──
+    if provider is None:
+        if settings.groq_api_key:
+            provider = "groq"
+        elif settings.gemini_api_key:
+            provider = "gemini"
+        else:
+            provider = "ollama"
+
+    provider = provider.lower().strip()
+    llm = _build_llm(provider, temperature, max_tokens)
+
+    # ── RUNTIME FALLBACK: Groq loi (429/timeout/model decommissioned) → Gemini ──
+    # Chi ap dung khi provider duoc TU DONG chon (khong ap dung neu nguoi goi
+    # chi dinh ro rang provider="groq", vi do la lua chon co chu dich).
+    if auto_detected and provider == "groq" and settings.gemini_api_key:
+        fallback_llm = _build_llm("gemini", temperature, max_tokens)
+        llm = llm.with_fallbacks([fallback_llm])
+        print("[INFO] Da gan Gemini lam fallback runtime cho Groq.", flush=True)
 
     return llm
 

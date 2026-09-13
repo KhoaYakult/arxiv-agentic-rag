@@ -29,8 +29,9 @@ def parse_pdf_to_markdown(pdf_path: str | Path) -> str:
 
     Raises:
         FileNotFoundError: Nếu không tìm thấy file PDF tại đường dẫn chỉ định.
-        RuntimeError: Nếu quá trình parse PDF thất bại (file hỏng, có password...).
+        RuntimeError: Nếu quá trình trích xuất thất bại hoặc kết quả trống.
     """
+
     pdf_path = Path(pdf_path)
 
     if not pdf_path.exists():
@@ -39,7 +40,21 @@ def parse_pdf_to_markdown(pdf_path: str | Path) -> str:
     print(f"[INFO] Bat dau parse file: {pdf_path.name} ...")
 
     try:
-        md_text = pymupdf4llm.to_markdown(str(pdf_path))
+        result = pymupdf4llm.to_markdown(str(pdf_path), page_chunks=True)
+        if isinstance(result, list):
+            # page_chunks=True tra ve list[dict], moi phan tu la 1 trang:
+            # {"text": ..., "metadata": {"page": ...}, "toc_items": [...], ...}
+            # Noi lai thanh 1 chuoi markdown, chen marker so trang de
+            # cac buoc chunking sau nay (Phase 2) co the trich xuat page_num.
+            parts = []
+            for i, page in enumerate(result):
+                page_num = page.get("metadata", {}).get("page", i + 1)
+                page_text = page.get("text", "")
+                if page_text.strip():
+                    parts.append(f"<!-- page:{page_num} -->\n{page_text}")
+            md_text = "\n\n".join(parts)
+        else:
+            md_text = result
     except Exception as e:
         print(f"[WARN] pymupdf4llm loi hoac het RAM tren Server: {e}", flush=True)
         print("[INFO] Chuyen sang che do fallback PyMuPDF (fitz) sieu nhe (15MB RAM)...", flush=True)
@@ -63,7 +78,7 @@ def parse_pdf_to_markdown(pdf_path: str | Path) -> str:
             f"Kiem tra lai file PDF: {pdf_path.name}"
         )
 
-    print(f"[SUCCESS] Parse xong! Tong: {len(md_text)} ky tu tu {pdf_path.name}.")
+    print(f"[SUCCESS] Tong: {len(md_text)} ky tu tu {pdf_path.name}.")
     return md_text
 
 

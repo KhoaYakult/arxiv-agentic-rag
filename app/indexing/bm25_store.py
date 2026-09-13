@@ -107,22 +107,32 @@ class BM25StoreManager:
 
         print(f"[INFO] Bat dau tokenize {len(chunks)} chunks...", flush=True)
 
-        corpus_tokens = []
-        self._chunks_meta = []
-
+        # QUAN TRONG: KHONG duoc reset self._chunks_meta = [] o day.
+        # __init__ da load corpus cua CAC PAPER KHAC tu disk (neu co). Neu xoa
+        # va build lai chi tu `chunks` (paper dang upload), toan bo BM25 entry
+        # cua cac paper truoc do se bien mat vinh vien, trong khi ChromaDB van
+        # con giu -> hybrid search am tham tut ve dense-only cho cac paper cu.
+        # Fix: MERGE theo chunk_id (upload lai cung paper se ghi de dung entry
+        # cu, khong tao trung lap).
+        existing_by_id = {m["chunk_id"]: m for m in self._chunks_meta}
         for chunk in chunks:
-            tokens = tokenize(chunk.text)
-            corpus_tokens.append(tokens)
-            self._chunks_meta.append({
+            existing_by_id[chunk.chunk_id] = {
                 "chunk_id": chunk.chunk_id,
                 "parent_section_id": chunk.parent_section_id,
                 "parent_section_name": chunk.parent_section_name,
                 "paper_id": chunk.paper_id,
                 "is_table": chunk.is_table,
                 "text": chunk.text,
-            })
+            }
+        self._chunks_meta = list(existing_by_id.values())
 
-        print(f"[INFO] Xay dung BM25 Index tren {len(corpus_tokens)} documents...", flush=True)
+        corpus_tokens = [tokenize(m["text"]) for m in self._chunks_meta]
+
+        print(
+            f"[INFO] Xay dung BM25 Index tren {len(corpus_tokens)} documents "
+            f"(gop voi cac paper da index truoc do)...",
+            flush=True,
+        )
         self._bm25 = BM25Okapi(corpus_tokens)
 
         # Lưu index xuống ổ D để tái sử dụng lần sau

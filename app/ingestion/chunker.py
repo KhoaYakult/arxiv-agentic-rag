@@ -73,20 +73,21 @@ def _find_split_point(text: str, target: int) -> int:
     if target >= len(text):
         return len(text)
 
-    # 1. Ưu tiên: tìm xuống dòng đôi (ranh giới đoạn) trong vùng [target-200, target]
-    search_start = max(0, target - 200)
+    # 1. Ưu tiên: tìm xuống dòng đôi (\\n\\n) trong vùng [target*0.25, target]
+    search_start = int(target * 0.25)  
     para_boundary = text.rfind("\n\n", search_start, target)
     if para_boundary != -1:
         return para_boundary + 2
 
-    # 2. Tìm ranh giới câu (.  !  ?) trong vùng [target-150, target]
-    search_start = max(0, target - 150)
+    # 2. Tìm ranh giới câu (.  !  ?) trong vùng [target*0.18, target]
+    search_start = int(target * 0.18)
     window = text[search_start:target]
     for m in reversed(list(_SENTENCE_BOUNDARY.finditer(window))):
         return search_start + m.end()
 
-    # 3. Fallback: tìm khoảng trắng gần nhất (không cắt giữa từ)
-    space_pos = text.rfind(" ", max(0, target - 50), target)
+    # 3. Fallback: tìm khoảng trắng gần nhất trong vùng [target*0.08, target]
+    search_start = max(0, int(target * 0.08))
+    space_pos = text.rfind(" ", search_start, target)
     if space_pos != -1:
         return space_pos + 1
 
