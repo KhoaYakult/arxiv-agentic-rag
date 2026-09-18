@@ -2,7 +2,7 @@
 
 File theo dõi tiến độ dự án — cập nhật mỗi khi có thay đổi đáng kể. Chi tiết kỹ thuật/lý do quyết định xem [`ROADMAP.md`](ROADMAP.md) (kế hoạch 6 phase) và [`Architecture.md`](Architecture.md) (tài liệu hệ thống).
 
-> **Cập nhật:** 2026-09-17 · **Đang ở:** Phase 1 (hoàn thành, chờ verify thủ công 2 mục) → chuẩn bị Phase 2
+> **Cập nhật:** 2026-09-18 · **Đang ở:** Phase 1 (hoàn thành, chờ verify thủ công 2 mục) → chuẩn bị Phase 2
 
 ---
 
@@ -29,7 +29,7 @@ File theo dõi tiến độ dự án — cập nhật mỗi khi có thay đổi 
 - [x] `README.md`, `CLAUDE.md`, `docs/Architecture.md` (viết mới hoàn toàn)
 - [x] Dọn dẹp repo: `.gitignore` thiếu `.venv/` (1.5GB), gộp thư mục skill trùng lặp (`.agents/` vs `.claude/skills/`)
 
-**Trạng thái git:** 6 commit trên `main`, **chưa push lên origin** (`ahead 6`).
+**Trạng thái git:** 7 commit trên `main`, **chưa push lên origin** (`ahead 7`).
 
 **Chưa tự verify được (cần bạn xác nhận):**
 - [ ] `docker build` + `docker run` thật — kiểm tra `$PORT` tuỳ chỉnh hoạt động, `HEALTHCHECK` báo `healthy`, chạy bằng non-root user
@@ -43,7 +43,7 @@ File theo dõi tiến độ dự án — cập nhật mỗi khi có thay đổi 
 
 ### Ngay trước mắt
 - [ ] Bạn verify 2 mục Docker/e2e ở trên
-- [ ] Push 6 commit lên origin (khi bạn xác nhận sẵn sàng)
+- [ ] Push 7 commit lên origin (khi bạn xác nhận sẵn sàng)
 
 ### Phase 2 — Supabase là nguồn sự thật duy nhất ⭐ (phase quan trọng nhất, xem `ROADMAP.md`)
 - [ ] Schema Postgres: `papers`, `sections`, `chunks` (thêm `page_num`, `char_start/end`, `level`, `embedding vector(768)`, `fts tsvector`), `paper_cards`
