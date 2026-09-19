@@ -1,7 +1,7 @@
 # 🗺️ ROADMAP — ArXiv Agentic RAG → Production-Grade
 
-> **Phiên bản:** 3.1 · **Cập nhật:** 2026-09-13
-> **Trạng thái:** Phase 1 hoàn thành (xem mục Phase 1 bên dưới). Đang chuẩn bị Phase 2.
+> **Phiên bản:** 3.2 · **Cập nhật:** 2026-09-19
+> **Trạng thái:** Phase 1 hoàn thành, đã verify end-to-end trên máy thật (xem mục Phase 1 bên dưới). Đang chuẩn bị Phase 2.
 > **Mục tiêu:** sản phẩm chạy thật, có số đo chất lượng, kể được câu chuyện kỹ thuật mạnh trên CV.
 
 ---
@@ -66,7 +66,7 @@
 ### Kiểm chứng
 - `make test` xanh (20/20), `ruff check .` sạch — verify trong CI lẫn local.
 - `requirements.txt` verify trên venv sạch hoàn toàn (không rely vào package đã cài từ trước).
-- **Chưa tự verify được** (cần Docker daemon / API key thật, không có sẵn trong môi trường viết code): `docker build`/`docker run` với `$PORT` tuỳ chỉnh + healthcheck; upload PDF thật → `/ask` thật kiểm tra `sources` khác rỗng. **→ bạn tự chạy theo hướng dẫn đã đưa, báo lại nếu có lỗi.**
+- ✅ **Verify trên máy thật (2026-09-19)**: `docker build`/`docker run` — `docker ps` báo `healthy`, `docker exec whoami` → `appuser` (non-root), `$PORT=9000` tuỳ chỉnh trả lời đúng port. Upload PDF thật (182 chunks) → `/ask` thật trả lời đúng nội dung, **`sources` có 5 phần tử** — xác nhận bug #3 hết thật ngoài đời, không chỉ unit test.
 
 ### Kiến thức đã áp dụng
 pytest fixtures/class-based test grouping · ruff rule selection & per-file-ignore · Docker multi-stage build · `lru_cache` + LangChain `.with_fallbacks()` cho runtime resilience.

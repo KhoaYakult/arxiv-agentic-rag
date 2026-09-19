@@ -1,15 +1,15 @@
 # Next Steps
 
-> Cập nhật: 2026-09-19 · Xem `STATE.md` để biết vì sao đang kẹt ở đây.
+> Cập nhật: 2026-09-19 · Phase 1 đã verify xong hết (xem `STATE.md`).
 
-## Ngay trước mắt (đang chờ user)
+## Ngay trước mắt
 
-1. [ ] User mở Docker Desktop trên máy Mac, chạy `docker info` để confirm daemon sống.
-2. [ ] User chạy `docker build -t arxiv-rag .` (đừng quên dấu `.`), rồi `docker run` với `$PORT` tuỳ chỉnh + `docker ps` check `healthy`.
-3. [ ] User upload PDF thật + gọi `/ask` thật, xác nhận `sources` trong response khác rỗng.
-4. [ ] Sau khi (2) và (3) OK → push 8 commit lên `origin` (hiện `main` đang `ahead 8`, chưa push).
+1. [x] Docker build/run/healthcheck/non-root/$PORT — verify xong trên máy user.
+2. [x] Upload + `/ask` thật, `sources` khác rỗng — verify xong.
+3. [ ] Hỏi user có muốn push 10 commit lên `origin` không (`main` đang `ahead 10`) — đừng tự ý push, hỏi trước.
+4. [ ] Nhắc user dọn container test trên máy họ nếu chưa: `docker stop arxiv-rag-test && docker rm arxiv-rag-test`.
 
-Khi cả 4 mục trên xong → **Phase 1 đóng hẳn**, chuyển Phase 2.
+Khi (3) xong → **Phase 1 đóng hẳn hoàn toàn**, bắt đầu Phase 2.
 
 ## Phase 2 — Supabase là nguồn sự thật duy nhất ⭐ (phase quan trọng nhất)
 
