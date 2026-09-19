@@ -31,6 +31,13 @@ langchain-ollama==1.1.0
 langgraph==1.2.11
 langgraph-checkpoint-sqlite==3.1.1
 
+# Phase 2 - Postgres/Supabase storage layer (app/storage/, app/indexing/embeddings.py)
+# Not yet wired into routes.py - vector_store.py/bm25_store.py are still the live,
+# verified pipeline until Supabase is set up and the cutover is tested for real.
+asyncpg==0.31.0
+pgvector==0.5.0
+tenacity==9.1.4
+
 # API & Web UI
 fastapi==0.141.1
 uvicorn==0.52.4

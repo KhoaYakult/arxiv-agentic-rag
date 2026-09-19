@@ -46,11 +46,12 @@ class Settings(BaseSettings):
     cohere_api_key: str = ""
     gemini_api_key: str = ""
     groq_api_key: str = ""
-    hf_token: str = ""       
+    hf_token: str = ""
 
-    # Upstash Redis: Cloud Memory API 
-    upstash_redis_url: str = ""
-    upstash_redis_token: str = ""
+    # ── PHASE 2: SUPABASE POSTGRES (app/storage/repository.py) ──
+    # Connection string dang: postgresql://postgres:[PASSWORD]@...supabase.co:5432/postgres
+    # Lay tu Supabase: Project -> Connect -> URI. Rong = repository.py chua dung duoc.
+    database_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

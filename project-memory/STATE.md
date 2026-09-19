@@ -4,11 +4,20 @@
 
 ## Đang ở đâu
 
-**Phase 1 (docs/ROADMAP.md) — HOÀN THÀNH, đã verify end-to-end trên máy thật.** Sẵn sàng chuyển Phase 2.
+**Phase 1 hoàn thành + đã push lên `origin/main`.** Đang bắt đầu Phase 2, giai đoạn scaffold (viết code chưa test được với DB thật).
 
-- 10 commit trên `main`, **chưa push lên `origin`** (`ahead 10`) — hỏi user xem đã muốn push chưa, đừng tự ý push.
-- Working tree sạch (kiểm tra lại bằng `git status` — đừng tin memory này nếu đã lâu, tự chạy lệnh).
+- `main` đã sync với `origin` (user tự push từ máy họ — sandbox này không push được, không có credential GitHub, xem lại lịch sử chat nếu cần lý do).
+- Working tree: kiểm tra lại bằng `git status`, đừng tin memory này nếu đã lâu.
 - `make test` (20 test) xanh, `ruff check .` sạch — verify trong CI lẫn local, nhiều lần.
+
+## Phase 2 — đang chờ 2 credential trước khi test được thật
+
+1. **`DATABASE_URL`** (Supabase Postgres) — user đang tạo project, chưa xong.
+2. **`GEMINI_API_KEY`** — đang **rỗng** trong `.env` (không phải chỉ chưa set, đã check trực tiếp bằng code). Cần key thật (aistudio.google.com/apikey, free) để test `GeminiEmbeddingProvider`.
+
+Đã scaffold xong phần không cần 2 credential trên để test cú pháp/logic cơ bản (`db/schema.sql`, `app/storage/repository.py`, `app/indexing/embeddings.py`) — verify bằng compile + ruff + import smoke-test, **CHƯA** verify bằng cách gọi thật Postgres/Gemini API. Xem `NEXT_STEPS.md` mục Phase 2 để biết chính xác cái gì đã xong/chưa.
+
+⚠️ Pipeline Phase 1 (ChromaDB + BM25 + HF embedding) **vẫn là pipeline đang chạy thật** — chưa đụng vào `routes.py`/`vector_store.py`/`bm25_store.py`, chưa cutover. Đừng xoá 2 file đó cho đến khi Postgres thật hoạt động và đã test lại end-to-end như đã làm ở Phase 1.
 
 ## Đã verify xong trên máy thật (macOS, Docker Desktop)
 
