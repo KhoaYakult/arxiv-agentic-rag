@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Start here
+
+**Before doing anything else, read `project-memory/STATE.md`, `project-memory/FIXED_BUGS.md`, and `project-memory/NEXT_STEPS.md`.** They're the living record of what's currently in progress, what's already fixed (and must not be re-broken the same way), and what's queued next — kept more current than this file. `project-memory/README.md` explains how they're meant to be read and updated.
+
 ## Project
 
 ArXiv Agentic RAG: a Corrective-RAG (CRAG) question-answering system over scientific PDF papers. Pipeline: PDF → parse to Markdown → parent-child chunking → hybrid retrieval (dense ChromaDB + sparse BM25) → rerank → LangGraph self-reflective agent (retrieve → grade → rewrite-if-insufficient → generate) → FastAPI backend + Streamlit frontend. Deployed on Railway (API) / Streamlit Cloud (UI).
