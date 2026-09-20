@@ -9,14 +9,12 @@ Thay the 3 thu rai rac cua Phase 1:
   - app/indexing/bm25_store.py (BM25StoreManager, pickle)
 
 CHUA duoc wire vao routes.py - vector_store.py/bm25_store.py van la pipeline
-dang chay that, da verify end-to-end (xem project-memory/STATE.md). Chi
-chua CRUD cho papers/sections/chunks; ham tim kiem (hybrid search) se viet
-sau khi co Postgres that de test - viet mo (blind) mot SQL search phuc tap
-ma khong chay thu duoc thi rui ro sai cao hon loi ich.
+dang chay that, da verify end-to-end (xem project-memory/STATE.md).
 
 Truoc khi dung module nay: chay db/schema.sql qua Supabase SQL Editor.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -216,3 +214,71 @@ async def insert_chunks(
                 """,
                 chunk.chunk_id, paper_id, section_pk, chunk.text, chunk.is_table, embedding,
             )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HYBRID SEARCH - dense (pgvector) + sparse (Postgres FTS) + RRF
+#
+# Tai su dung reciprocal_rank_fusion() da test trong Phase 1
+# (app/indexing/hybrid_retriever.py) thay vi viet lai - ham do khong quan tam
+# nguon goc ranking (BM25 hay Postgres FTS), chi can dict co key
+# {chunk_id, dense_rank} hoac {chunk_id, bm25_rank}. Giu nguyen ten key
+# "bm25_rank" du gio la Postgres FTS (khong phai BM25 that) de tai su dung
+# ham fusion khong sua doi - fusion la thuat toan generic tren 2 danh sach
+# rank, khong phu thuoc cach tinh diem cu the.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DENSE_SEARCH_SQL = """
+    SELECT c.chunk_id, c.paper_id, c.text, c.is_table,
+           COALESCE(s.name, 'Unknown section') AS parent_section_name
+    FROM chunks c
+    LEFT JOIN sections s ON s.id = c.section_pk
+    WHERE c.paper_id = $1
+    ORDER BY c.embedding <=> $2
+    LIMIT $3
+"""
+
+_SPARSE_SEARCH_SQL = """
+    SELECT c.chunk_id, c.paper_id, c.text, c.is_table,
+           COALESCE(s.name, 'Unknown section') AS parent_section_name
+    FROM chunks c
+    LEFT JOIN sections s ON s.id = c.section_pk
+    WHERE c.paper_id = $1 AND c.fts @@ websearch_to_tsquery('english', $2)
+    ORDER BY ts_rank_cd(c.fts, websearch_to_tsquery('english', $2)) DESC
+    LIMIT $3
+"""
+
+
+async def dense_search(paper_id: str, query_embedding: list[float], top_k: int = 20) -> list[dict]:
+    """Tim theo ngu nghia bang pgvector cosine distance (`<=>`, can HNSW index)."""
+    pool = await get_pool()
+    rows = await pool.fetch(_DENSE_SEARCH_SQL, paper_id, query_embedding, top_k)
+    return [{**dict(r), "dense_rank": i} for i, r in enumerate(rows, start=1)]
+
+
+async def sparse_search(paper_id: str, query_text: str, top_k: int = 20) -> list[dict]:
+    """Tim theo tu khoa bang Postgres full-text search (thay `rank_bm25` cua Phase 1)."""
+    pool = await get_pool()
+    rows = await pool.fetch(_SPARSE_SEARCH_SQL, paper_id, query_text, top_k)
+    return [{**dict(r), "bm25_rank": i} for i, r in enumerate(rows, start=1)]
+
+
+async def hybrid_search(
+    paper_id: str,
+    query_text: str,
+    query_embedding: list[float],
+    top_k: int = 20,
+) -> list[dict]:
+    """
+    Dense + sparse chay song song (asyncio.gather), gop bang RRF. Tra ve
+    top_k ung vien da fuse - chua rerank (buoc rerank van la
+    app/indexing/reranker.py, khong doi, khong quan tam data tu dau ra).
+    """
+    from app.indexing.hybrid_retriever import reciprocal_rank_fusion
+
+    dense_results, sparse_results = await asyncio.gather(
+        dense_search(paper_id, query_embedding, top_k),
+        sparse_search(paper_id, query_text, top_k),
+    )
+    fused = reciprocal_rank_fusion(dense_results, sparse_results)
+    return fused[:top_k]

@@ -14,7 +14,11 @@
 
 ✅ **`DATABASE_URL`** (Supabase, Session pooler) hoạt động — verify bằng cách gọi thật `upsert_paper`/`get_paper`/`insert_sections`/`insert_chunks`/`delete_paper` trên DB thật, dọn sạch dữ liệu test sau đó.
 
-✅ **`GEMINI_API_KEY`** đã có và verify xong — `embed_query`/`embed_documents` gọi API thật thành công, trả đúng 768-dim, cosine similarity đúng hướng (câu liên quan > câu không liên quan). Toàn bộ scaffold Phase 2 giờ đã verify thật, không còn phần nào "chưa test".
+✅ **`GEMINI_API_KEY`** đã có và verify xong — `embed_query`/`embed_documents` gọi API thật thành công, trả đúng 768-dim, cosine similarity đúng hướng (câu liên quan > câu không liên quan).
+
+✅ **`repository.hybrid_search()`** viết xong + verify thật: index 4 chunk (embedding Gemini thật) vào Supabase, query thật → top-2 kết quả đúng chính xác 2 chunk liên quan, xếp hạng đúng theo RRF. Dense (pgvector cosine `<=>`) + sparse (Postgres FTS) chạy song song qua `asyncio.gather`, gộp bằng `reciprocal_rank_fusion()` tái dùng nguyên từ Phase 1 — không viết lại RRF.
+
+Toàn bộ phần data-layer của Phase 2 (schema, CRUD, embedding, hybrid search) giờ đã verify thật, không còn phần nào "chưa test". Việc còn lại là **wiring** (nối vào routes.py) và các phần chưa đụng tới (BackgroundTasks, AsyncPostgresSaver, xoá vector_store.py/bm25_store.py).
 
 ### 3 bug thật đã tìm và sửa trong lúc test kết nối Supabase (không đoán được nếu không có DB thật)
 

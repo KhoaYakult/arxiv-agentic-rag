@@ -22,9 +22,11 @@ Chi tiết đầy đủ + schema SQL ở `docs/ROADMAP.md`.
 - [x] `app/config.py` thêm `database_url`; dọn `upstash_redis_url`/`upstash_redis_token` (chưa từng dùng, đúng quyết định đã ghi ở ROADMAP mục 1)
 - [x] `requirements.txt` thêm `asyncpg`, `pgvector`, `tenacity`
 
+**Vừa xong (verify thật):**
+- [x] `repository.hybrid_search()` — dense (pgvector `<=>`) + sparse (Postgres FTS `websearch_to_tsquery`) chạy song song (`asyncio.gather`), gộp bằng `reciprocal_rank_fusion()` **tái dùng nguyên** từ Phase 1 (không viết lại RRF). Test thật: 4 chunk (2 liên quan CortexODE, 2 không liên quan), query "Dice coefficient của CortexODE" → top-2 đúng chính xác 2 chunk liên quan, xếp đúng thứ tự RRF score.
+
 **Cố ý CHƯA làm (rủi ro viết sai mà không test được, hoặc đợi bước trước xong):**
-- [ ] Hàm hybrid search (dense+sparse trong Postgres) — giờ có DB thật rồi, có thể viết + test được, ưu tiên làm tiếp theo
-- [ ] Wire `repository.py`/`embeddings.py` vào `routes.py`/`hybrid_retriever.py`
+- [ ] Wire `repository.py`/`embeddings.py`/`hybrid_search()` vào `routes.py` (thay `HybridRetriever` cũ)
 - [ ] **Xoá hẳn** `app/indexing/vector_store.py` và `app/indexing/bm25_store.py` (chỉ xoá sau khi cutover xong và test lại end-to-end như Phase 1)
 - [ ] `/upload` chuyển sang `BackgroundTasks`, trả `202` + endpoint polling status
 - [ ] `DELETE /papers/{id}`; dense+sparse chạy song song (`asyncio.gather`); singleton retriever qua FastAPI `lifespan`
