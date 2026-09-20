@@ -6,21 +6,25 @@ Dinh nghia cac endpoint REST API cua ung dung.
 Cac endpoint:
   GET  /health          — Kiem tra server dang song
   GET  /papers          — Lay danh sach bai bao da duoc index
-  POST /upload          — Upload PDF -> parse -> chunk -> index vao ChromaDB
+  POST /upload          — Upload PDF -> parse -> chunk -> index vao Postgres
   POST /ask             — Hoi Agent va nhan cau tra loi
 
-Luong xu ly /upload:
+Luong xu ly /upload (Phase 2 - Postgres/Supabase):
   PDF file -> chunker.process_paper_ingestion()
-           -> VectorStoreManager.add_chunks()
-           -> BM25StoreManager.build_index()
+           -> embeddings.get_embedding_provider().embed_documents()
+           -> repository.upsert_paper() + insert_sections() + insert_chunks()
 
 Luong xu ly /ask:
   AskRequest -> rag_graph.ask() -> AskResponse
+
+Phase 1 (ChromaDB + BM25 pickle) da bi thay the hoan toan o day - xem
+project-memory/STATE.md truoc khi xoa app/indexing/vector_store.py va
+bm25_store.py (chi xoa sau khi cutover nay da test lai end-to-end that
+nhu da lam voi Phase 1).
 """
 
 from __future__ import annotations
 
-import json
 import shutil
 import uuid
 from pathlib import Path
@@ -39,27 +43,6 @@ from app.api.schemas import (
 from app.config import settings
 
 router = APIRouter()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# HELPER: doc file trang thai bai bao da upload (luu o JSON don gian)
-# ──────────────────────────────────────────────────────────────────────────────
-
-_PAPERS_REGISTRY = settings.data_dir / "papers_registry.json"
-
-
-def _load_registry() -> dict[str, dict]:
-    """Doc registry tu file JSON. Tra ve {} neu file chua ton tai."""
-    if _PAPERS_REGISTRY.exists():
-        with open(_PAPERS_REGISTRY, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def _save_registry(registry: dict[str, dict]) -> None:
-    """Ghi registry xuong file JSON."""
-    with open(_PAPERS_REGISTRY, "w", encoding="utf-8") as f:
-        json.dump(registry, f, ensure_ascii=False, indent=2)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -94,19 +77,21 @@ def health_check() -> HealthResponse:
     summary="Lay danh sach bai bao da upload",
     tags=["Papers"],
 )
-def list_papers() -> PapersResponse:
+async def list_papers() -> PapersResponse:
     """
     Tra ve danh sach tat ca bai bao da duoc upload va index thanh cong.
     Streamlit dung endpoint nay de hien thi dropdown chon bai bao.
     """
-    registry = _load_registry()
+    from app.storage import repository
+
+    rows = await repository.list_papers()
     papers = [
         PaperInfo(
-            paper_id=pid,
-            title=info.get("title", pid),
-            num_chunks=info.get("num_chunks", 0),
+            paper_id=row["paper_id"],
+            title=row["title"],
+            num_chunks=row["num_chunks"],
         )
-        for pid, info in registry.items()
+        for row in rows
     ]
     return PapersResponse(papers=papers, total=len(papers))
 
@@ -134,10 +119,9 @@ async def upload_paper(
     1. Luu file vao thu muc data/
     2. Parse PDF -> Markdown (dung pymupdf4llm)
     3. Chunk Markdown -> Parent Sections + Child Chunks
-    4. Index chunks vao ChromaDB (Dense Vector)
-    5. Build/cap nhat BM25 Index (Sparse Vector)
-    6. Luu thong tin vao registry
+    4. Embed chunks (Gemini) + ghi papers/sections/chunks vao Postgres
     """
+    from app.storage import repository
 
     # ── Validate file ──
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -167,52 +151,47 @@ async def upload_paper(
         )
 
     # ── Parse PDF + Chunk ──
+    # Luu y: khong dung cache JSON cua Phase 1 (load_chunks_from_file) nua -
+    # cache do chi luu ChildChunk, khong luu ParentSection, nen se mat du lieu
+    # sections can cho insert_sections() ben duoi. Parse lai moi lan upload.
     try:
-        from app.indexing.bm25_store import BM25StoreManager
-        from app.indexing.vector_store import VectorStoreManager
-        from app.ingestion.chunker import load_chunks_from_file, process_paper_ingestion
+        from app.ingestion.chunker import process_paper_ingestion
 
-        # Thu load tu cache truoc (neu da xu ly roi)
-        chunks = load_chunks_from_file(paper_id)
-        if chunks is None:
-            _, chunks = process_paper_ingestion(pdf_path, paper_id=paper_id)
-
+        sections, chunks = process_paper_ingestion(pdf_path, paper_id=paper_id)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Loi khi xu ly PDF: {e}",
         )
 
-    # ── Index vao ChromaDB ──
-    # Dung method add_child_chunks() co san trong VectorStoreManager
-    # (da duoc test ky, xu ly embed API batching va progress log dung chuan)
+    # ── Embed chunks (Gemini) ──
     try:
-        vm = VectorStoreManager()
-        vm.add_child_chunks(chunks)
+        from app.indexing.embeddings import get_embedding_provider
+
+        provider = get_embedding_provider()
+        embeddings = provider.embed_documents([c.text for c in chunks])
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Loi khi index vao ChromaDB: {e}",
+            detail=f"Loi khi tao embedding: {e}",
         )
 
-    # ── Build / cap nhat BM25 ──
+    # ── Ghi vao Postgres (papers + sections + chunks) ──
     try:
-        bm25_mgr = BM25StoreManager()
-        bm25_mgr.build_index(chunks)
+        await repository.upsert_paper(
+            paper_id=paper_id,
+            title=Path(file.filename).stem,
+            filename=file.filename,
+            status="processing",
+        )
+        section_pk_map = await repository.insert_sections(paper_id, sections)
+        await repository.insert_chunks(paper_id, chunks, embeddings, section_pk_map)
+        await repository.set_paper_status(paper_id, status="ready", num_chunks=len(chunks))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Loi khi build BM25: {e}",
+            detail=f"Loi khi ghi vao Postgres: {e}",
         )
-
-    # ── Luu vao registry ──
-    registry = _load_registry()
-    registry[paper_id] = {
-        "title": Path(file.filename).stem,
-        "filename": file.filename,
-        "num_chunks": len(chunks),
-    }
-    _save_registry(registry)
 
     return UploadResponse(
         paper_id=paper_id,
@@ -232,7 +211,7 @@ async def upload_paper(
     summary="Hoi Agent ve noi dung bai bao",
     tags=["Chat"],
 )
-def ask_agent(body: AskRequest) -> AskResponse:
+async def ask_agent(body: AskRequest) -> AskResponse:
     """
     Gui cau hoi toi LangGraph RAG Agent va nhan cau tra loi.
 
@@ -241,10 +220,11 @@ def ask_agent(body: AskRequest) -> AskResponse:
     - Tra ve cau tra loi, nguon trich dan, so lan rewrite va grade.
     """
     from app.agent.rag_graph import ask
+    from app.storage import repository
 
     # Kiem tra paper ton tai
-    registry = _load_registry()
-    if body.paper_id not in registry:
+    paper = await repository.get_paper(body.paper_id)
+    if paper is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Khong tim thay paper_id='{body.paper_id}'. "
@@ -256,7 +236,7 @@ def ask_agent(body: AskRequest) -> AskResponse:
 
     # Goi Agent
     try:
-        result = ask(
+        result = await ask(
             question=body.question,
             paper_id=body.paper_id,
             thread_id=thread_id,

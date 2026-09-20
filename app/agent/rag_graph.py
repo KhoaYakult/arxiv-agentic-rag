@@ -1,7 +1,13 @@
-﻿"""
+"""
 app/agent/rag_graph.py - LangGraph RAG Agent (Backend Standard)
-Memory tang 1: SqliteSaver (data/chat_memory.db)
-Memory tang 2: Upstash Redis - tich hop tai FastAPI (Buoc 5.2)
+Memory: AsyncSqliteSaver (data/chat_memory.db)
+
+Phase 2: retrieve_node dung repository.hybrid_search() (Postgres/pgvector +
+FTS) thay HybridRetriever (ChromaDB + rank_bm25) cua Phase 1. Toan bo graph
+chuyen sang async vi asyncpg (thu vien Postgres) chi ho tro async - dung
+asyncio.run() chap va o 1 node duy nhat se lam vo pool connection giua cac
+lan goi (moi asyncio.run() tao 1 event loop moi, pool cache lai bi gan voi
+loop cu da dong). Xem project-memory/FIXED_BUGS.md.
 """
 
 import sys
@@ -33,25 +39,39 @@ class AgentState(TypedDict):
 
 
 MAX_REWRITES = 2
+FIRST_STAGE_K = 20  # so ung vien lay tu hybrid_search truoc khi rerank con 5
 
 
 # =============================================================================
 # NODES
 # =============================================================================
 
-def retrieve_node(state: AgentState) -> dict:
-    """Tim kiem Top-5 chunks bang HybridRetriever."""
-    from app.indexing.hybrid_retriever import HybridRetriever
+async def retrieve_node(state: AgentState) -> dict:
+    """Tim Top-5 chunks: repository.hybrid_search() (pgvector + FTS) -> rerank."""
+    from app.indexing.embeddings import get_embedding_provider
+    from app.indexing.reranker import RerankerManager
+    from app.storage import repository
+
     print(f"\n[NODE] retrieve -- {state['question'][:70]}", flush=True)
-    retriever = HybridRetriever()
-    chunks = retriever.retrieve(
-        query=state["question"], paper_id=state["paper_id"], top_k=5, verbose=False
+
+    provider = get_embedding_provider()
+    query_embedding = provider.embed_query(state["question"])
+
+    candidates = await repository.hybrid_search(
+        paper_id=state["paper_id"],
+        query_text=state["question"],
+        query_embedding=query_embedding,
+        top_k=FIRST_STAGE_K,
     )
+
+    reranker = RerankerManager()
+    chunks = reranker.rerank(state["question"], candidates, top_k=5)
+
     print(f"[NODE] retrieve -- Tim duoc {len(chunks)} chunks.", flush=True)
     return {"retrieved_chunks": chunks}
 
 
-def grade_node(state: AgentState) -> dict:
+async def grade_node(state: AgentState) -> dict:
     """LLM cham diem context co du de tra loi khong."""
     from langchain_core.prompts import ChatPromptTemplate
 
@@ -64,13 +84,13 @@ def grade_node(state: AgentState) -> dict:
         for i, c in enumerate(state["retrieved_chunks"])
     ])
     chain = ChatPromptTemplate.from_template(GRADE_DOCS_TEMPLATE) | get_llm()
-    response = chain.invoke({"context": context, "question": state["question"]})
+    response = await chain.ainvoke({"context": context, "question": state["question"]})
     grade = "yes" if "yes" in response.content.lower().strip() else "no"
     print(f"[NODE] grade -- {grade.upper()} (rewrite={state['rewrite_count']})", flush=True)
     return {"grade": grade}
 
 
-def rewrite_node(state: AgentState) -> dict:
+async def rewrite_node(state: AgentState) -> dict:
     """Viet lai cau hoi ro rang hon."""
     from langchain_core.prompts import ChatPromptTemplate
 
@@ -79,13 +99,13 @@ def rewrite_node(state: AgentState) -> dict:
 
     print(f"[NODE] rewrite -- lan {state['rewrite_count'] + 1}", flush=True)
     chain = ChatPromptTemplate.from_template(REWRITE_QUERY_TEMPLATE) | get_llm()
-    response = chain.invoke({"question": state["question"]})
+    response = await chain.ainvoke({"question": state["question"]})
     new_q = response.content.strip()
     print(f"[NODE] rewrite -- moi: {new_q}", flush=True)
     return {"question": new_q, "rewrite_count": state["rewrite_count"] + 1}
 
 
-def generate_node(state: AgentState) -> dict:
+async def generate_node(state: AgentState) -> dict:
     """LLM tong hop cau tra loi. Tu dong lay chat history tu messages."""
     from langchain_core.prompts import ChatPromptTemplate
 
@@ -109,7 +129,7 @@ def generate_node(state: AgentState) -> dict:
     ])
 
     chain = ChatPromptTemplate.from_template(RAG_ANSWER_TEMPLATE) | get_llm()
-    response = chain.invoke({
+    response = await chain.ainvoke({
         "context": context,
         "chat_history": history,
         "question": state["question"],
@@ -144,32 +164,39 @@ def decide_after_grade(state: AgentState) -> str:
 
 
 # =============================================================================
-# CHECKPOINTER - Memory Tang 1 (trong phien)
-# Tang 2 (Upstash Redis - giua phien) se tich hop tai FastAPI Buoc 5.2
+# BUILD GRAPH - lazy async singleton
+#
+# Compile can checkpointer, ma AsyncSqliteSaver can 1 ket noi aiosqlite (async)
+# de tao - khong the goi await o module-level (luc import). Nen build 1 lan
+# duy nhat, lazy, o lan goi ask() dau tien, giong pattern get_pool() trong
+# app/storage/repository.py.
 # =============================================================================
 
-def _get_checkpointer():
-    try:
-        import sqlite3
+_rag_app = None
 
-        from langgraph.checkpoint.sqlite import SqliteSaver
+
+async def _get_checkpointer():
+    """AsyncSqliteSaver - can cho graph chay async (ainvoke). Con tro ve o
+    Phase 2 sau (checkpointer Postgres qua AsyncPostgresSaver, xem
+    project-memory/NEXT_STEPS.md) - gio van dung SQLite, chi doi sync -> async."""
+    try:
+        import aiosqlite
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
         db_path = str(settings.data_dir / "chat_memory.db")
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        saver = SqliteSaver(conn)
-        print(f"[INFO] Checkpointer: SqliteSaver ({db_path})", flush=True)
+        conn = await aiosqlite.connect(db_path)
+        saver = AsyncSqliteSaver(conn)
+        print(f"[INFO] Checkpointer: AsyncSqliteSaver ({db_path})", flush=True)
         return saver
     except Exception as e:
-        from langgraph.checkpoint.memory import MemorySaver
-        print(f"[WARN] SqliteSaver loi: {e}. Fallback: MemorySaver.", flush=True)
-        return MemorySaver()
+        from langgraph.checkpoint.memory import InMemorySaver
+        print(f"[WARN] AsyncSqliteSaver loi: {e}. Fallback: InMemorySaver.", flush=True)
+        return InMemorySaver()
 
 
-# =============================================================================
-# BUILD GRAPH
-# =============================================================================
-
-def build_rag_graph():
+async def _build_rag_app():
     from langgraph.graph import END, START, StateGraph
+
     graph = StateGraph(AgentState)
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("grade", grade_node)
@@ -183,23 +210,29 @@ def build_rag_graph():
         "grade", decide_after_grade,
         {"generate": "generate", "rewrite": "rewrite"},
     )
-    return graph.compile(checkpointer=_get_checkpointer())
+    checkpointer = await _get_checkpointer()
+    return graph.compile(checkpointer=checkpointer)
 
 
-rag_app = build_rag_graph()
+async def _get_rag_app():
+    global _rag_app
+    if _rag_app is None:
+        _rag_app = await _build_rag_app()
+    return _rag_app
 
 
 # =============================================================================
 # PUBLIC API - Interface duy nhat cho FastAPI va Frontend
 # =============================================================================
 
-def ask(question: str, paper_id: str, thread_id: str = "default") -> dict:
+async def ask(question: str, paper_id: str, thread_id: str = "default") -> dict:
     """
     Goi RAG Agent. Cac module khac chi can dung ham nay.
 
     Voi cung thread_id, Agent tu dong nho lich su cac luot truoc.
     FastAPI se tao thread_id = str(uuid4()) moi cho moi user session.
     """
+    app = await _get_rag_app()
     config = {"configurable": {"thread_id": thread_id}}
     initial_state = {
         "question": question,
@@ -210,7 +243,7 @@ def ask(question: str, paper_id: str, thread_id: str = "default") -> dict:
         "rewrite_count": 0,
         "messages": [],
     }
-    return rag_app.invoke(initial_state, config=config)
+    return await app.ainvoke(initial_state, config=config)
 
 
 # =============================================================================
@@ -218,33 +251,38 @@ def ask(question: str, paper_id: str, thread_id: str = "default") -> dict:
 # =============================================================================
 
 if __name__ == "__main__":
-    PAPER_ID = "test_cortex_ode"
-    THREAD_ID = f"test_{uuid.uuid4().hex[:8]}"
+    import asyncio
 
-    print("=" * 60, flush=True)
-    print("[TEST] Buoc 4.3 -- LangGraph RAG Agent", flush=True)
-    print(f"[INFO] Thread ID: {THREAD_ID}", flush=True)
-    print("=" * 60, flush=True)
+    async def _main():
+        PAPER_ID = "test_cortex_ode"
+        THREAD_ID = f"test_{uuid.uuid4().hex[:8]}"
 
-    query1 = "What is CortexODE and how does it use neural ODE for surface reconstruction?"
-    print(f"\n[TURN 1] {query1}", flush=True)
-    r1 = ask(question=query1, paper_id=PAPER_ID, thread_id=THREAD_ID)
-    print("\n[KET QUA TURN 1]", flush=True)
-    print(f"  Grade       : {r1['grade']}", flush=True)
-    print(f"  Rewrite     : {r1['rewrite_count']}", flush=True)
-    print(f"  Messages    : {len(r1.get('messages', []))}", flush=True)
-    print(f"  Tra loi:\n{r1['answer']}", flush=True)
+        print("=" * 60, flush=True)
+        print("[TEST] LangGraph RAG Agent (Phase 2 - Postgres retrieval)", flush=True)
+        print(f"[INFO] Thread ID: {THREAD_ID}", flush=True)
+        print("=" * 60, flush=True)
 
-    query2 = "What are the limitations of this approach?"
-    print(f"\n{'=' * 60}", flush=True)
-    print(f"[TURN 2] {query2}", flush=True)
-    print("  (Agent tu dong nho Turn 1 qua thread_id)", flush=True)
-    r2 = ask(question=query2, paper_id=PAPER_ID, thread_id=THREAD_ID)
-    print("\n[KET QUA TURN 2]", flush=True)
-    print(f"  Rewrite     : {r2['rewrite_count']}", flush=True)
-    print(f"  Messages    : {len(r2.get('messages', []))} (nen la 4)", flush=True)
-    print(f"  Tra loi:\n{r2['answer']}", flush=True)
+        query1 = "What is CortexODE and how does it use neural ODE for surface reconstruction?"
+        print(f"\n[TURN 1] {query1}", flush=True)
+        r1 = await ask(question=query1, paper_id=PAPER_ID, thread_id=THREAD_ID)
+        print("\n[KET QUA TURN 1]", flush=True)
+        print(f"  Grade       : {r1['grade']}", flush=True)
+        print(f"  Rewrite     : {r1['rewrite_count']}", flush=True)
+        print(f"  Messages    : {len(r1.get('messages', []))}", flush=True)
+        print(f"  Tra loi:\n{r1['answer']}", flush=True)
 
-    print(f"\n{'=' * 60}", flush=True)
-    print("[SUCCESS] Buoc 4.3 hoan tat!", flush=True)
-    print("=" * 60, flush=True)
+        query2 = "What are the limitations of this approach?"
+        print(f"\n{'=' * 60}", flush=True)
+        print(f"[TURN 2] {query2}", flush=True)
+        print("  (Agent tu dong nho Turn 1 qua thread_id)", flush=True)
+        r2 = await ask(question=query2, paper_id=PAPER_ID, thread_id=THREAD_ID)
+        print("\n[KET QUA TURN 2]", flush=True)
+        print(f"  Rewrite     : {r2['rewrite_count']}", flush=True)
+        print(f"  Messages    : {len(r2.get('messages', []))} (nen la 4)", flush=True)
+        print(f"  Tra loi:\n{r2['answer']}", flush=True)
+
+        print(f"\n{'=' * 60}", flush=True)
+        print("[SUCCESS] Test hoan tat!", flush=True)
+        print("=" * 60, flush=True)
+
+    asyncio.run(_main())

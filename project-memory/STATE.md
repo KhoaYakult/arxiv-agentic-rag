@@ -18,7 +18,13 @@
 
 ✅ **`repository.hybrid_search()`** viết xong + verify thật: index 4 chunk (embedding Gemini thật) vào Supabase, query thật → top-2 kết quả đúng chính xác 2 chunk liên quan, xếp hạng đúng theo RRF. Dense (pgvector cosine `<=>`) + sparse (Postgres FTS) chạy song song qua `asyncio.gather`, gộp bằng `reciprocal_rank_fusion()` tái dùng nguyên từ Phase 1 — không viết lại RRF.
 
-Toàn bộ phần data-layer của Phase 2 (schema, CRUD, embedding, hybrid search) giờ đã verify thật, không còn phần nào "chưa test". Việc còn lại là **wiring** (nối vào routes.py) và các phần chưa đụng tới (BackgroundTasks, AsyncPostgresSaver, xoá vector_store.py/bm25_store.py).
+✅ **Cutover hoàn tất và verify thật qua HTTP** (uvicorn thật, không mock): `/upload` ghi Postgres, `/papers` đọc Postgres, `/ask` dùng `rag_graph.py` (giờ full async) gọi `repository.hybrid_search()`. Test với PDF thật 182 chunks — 1 câu hỏi tổng quát trả lời đúng (`grade:"yes"`, 5 sources hợp lý), 1 câu hỏi số liệu cụ thể trong bảng bị từ chối đúng cách (`grade:"no"` — hành vi an toàn, không phải bug, ghi backlog Phase 3).
+
+`rag_graph.py` **đã chuyển hẳn sang async** (bắt buộc vì `asyncpg` chỉ hỗ trợ async) — checkpointer đổi `SqliteSaver`→`AsyncSqliteSaver` (vẫn SQLite, chưa phải Postgres, đó là bước riêng).
+
+⚠️ `app/indexing/vector_store.py`/`bm25_store.py`/`hybrid_retriever.py` **không còn được dùng nữa** (routes.py/rag_graph.py đã trỏ hết sang Postgres) nhưng **cố ý CHƯA xoá file** — giữ lại phòng cần rollback nhanh, chờ user xác nhận ổn định vài ngày rồi mới xoá hẳn.
+
+Bug #11 mới tìm: Gemini free tier quota tính theo **số embedding/phút** (không phải số HTTP call) — `embed_documents()` giờ tự chia batch + nghỉ 61s. Nghĩa là **upload paper nhiều chunk (>100) giờ chậm hơn hẳn** (100 chunk đầu tức thì, mỗi 100 chunk tiếp theo +61s chờ) — đây là lý do BackgroundTasks cho `/upload` (item cũ trong NEXT_STEPS) giờ quan trọng hơn trước, không chỉ là "nice to have".
 
 ### 3 bug thật đã tìm và sửa trong lúc test kết nối Supabase (không đoán được nếu không có DB thật)
 

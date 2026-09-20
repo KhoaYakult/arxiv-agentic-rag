@@ -14,6 +14,7 @@ File nay se duoc dung khi cutover sang app/storage/repository.py.
 """
 
 import sys
+import time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -27,6 +28,14 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from app.config import settings
 
 EMBEDDING_DIM = 768
+
+# Free tier Gemini: quota "embed_content_free_tier_requests" tinh theo SO
+# LUONG DUOC EMBED trong 1 phut (khong phai so HTTP request) - gui 1 batch
+# 100 text trong 1 call van tinh la 100 don vi quota. Voi paper >100 chunk,
+# PHAI cho giua cac batch de tranh 429 RESOURCE_EXHAUSTED (da gap that khi
+# upload 1 paper 182 chunks - xem project-memory/FIXED_BUGS.md #11).
+_GEMINI_FREE_TIER_BATCH = 100
+_GEMINI_FREE_TIER_COOLDOWN_SEC = 61
 
 
 class GeminiEmbeddingProvider:
@@ -61,18 +70,46 @@ class GeminiEmbeddingProvider:
             google_api_key=resolved_key,
         )
 
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """
+        Embed danh sach chunk luc index (task_type=RETRIEVAL_DOCUMENT).
+
+        Tu chia batch <=100 va CHU DONG cho 61s giua cac batch (khong chi
+        dua vao retry/backoff phan ung) - quota free tier tinh theo phut,
+        goi lien tuc nhieu batch trong cung 1 phut van se bi 429 du moi
+        batch rieng le <=100. Paper cang nhieu chunk, upload cang lau (vd
+        182 chunks = 2 batch = cho ~61s) - danh doi thuc su cua free tier,
+        khong phai bug can "toi uu" di.
+        """
+        if not texts:
+            return []
+
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(texts), _GEMINI_FREE_TIER_BATCH):
+            batch = texts[i : i + _GEMINI_FREE_TIER_BATCH]
+            if i > 0:
+                print(
+                    f"[INFO] Cho {_GEMINI_FREE_TIER_COOLDOWN_SEC}s de tranh vuot quota "
+                    f"free-tier Gemini ({_GEMINI_FREE_TIER_BATCH} embedding/phut)...",
+                    flush=True,
+                )
+                time.sleep(_GEMINI_FREE_TIER_COOLDOWN_SEC)
+            all_embeddings.extend(self._embed_batch(batch))
+        return all_embeddings
+
     @retry(
         retry=retry_if_exception_type(Exception),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
         reraise=True,
     )
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Embed danh sach chunk luc index (task_type=RETRIEVAL_DOCUMENT)."""
-        if not texts:
-            return []
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """1 batch <=100 text - retry ngan cho loi mang/429 le te, khong phai co che chinh de tranh quota."""
         return self._client.embed_documents(
-            texts, task_type="RETRIEVAL_DOCUMENT", output_dimensionality=self.dim
+            texts,
+            batch_size=_GEMINI_FREE_TIER_BATCH,
+            task_type="RETRIEVAL_DOCUMENT",
+            output_dimensionality=self.dim,
         )
 
     @retry(

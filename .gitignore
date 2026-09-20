@@ -33,6 +33,8 @@ data/chroma_db/
 data/chunks_cache/
 data/bm25_index/
 data/chat_memory.db
+data/chat_memory.db-shm
+data/chat_memory.db-wal
 data/papers_registry.json
 data/*.pdf
 data/*.json
