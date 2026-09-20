@@ -35,9 +35,17 @@ _pool: asyncpg.Pool | None = None
 
 async def _register_vector_codec(conn: asyncpg.Connection) -> None:
     """Day asyncpg biet convert Python list[float] <-> Postgres `vector` type.
+
+    QUAN TRONG: Supabase cai extension pgvector vao schema `extensions`,
+    KHONG PHAI `public` (khac mac dinh cua thu vien pgvector - register_vector()
+    mac dinh schema='public'). DDL trong db/schema.sql van chay duoc vi
+    search_path cua Supabase da bao gom `extensions`, nhung ham nay lookup
+    type theo schema chi dinh ro rang nen phai truyen tay - thieu dong nay se
+    loi "unknown type: public.vector" du extension da bat va bang da tao xong.
+
     Luu y: doc lai (SELECT) cot embedding se tra ve pgvector.Vector, khong
     phai list[float] thuan - goi .to_list() khi can list thuan tuy."""
-    await register_vector(conn)
+    await register_vector(conn, schema="extensions")
 
 
 async def get_pool() -> asyncpg.Pool:

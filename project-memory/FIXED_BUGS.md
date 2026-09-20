@@ -47,3 +47,21 @@ Tất cả đã sửa trong Phase 1 (commit `f535a4e`, `0277d86`), verify bằng
 - **Nguyên nhân:** `_get_checkpointer()` có `except Exception` quá rộng, nuốt luôn `ModuleNotFoundError` và âm thầm fallback thay vì báo lỗi rõ ràng. Dependency `langgraph-checkpoint-sqlite` chưa từng có trong `requirements.txt`.
 - **Đã sửa:** thêm `langgraph-checkpoint-sqlite==3.1.1` vào `requirements.txt`. Verify bằng cách import trực tiếp: trước fix in `[WARN]`, sau fix in `[INFO] Checkpointer: SqliteSaver (...)`.
 - **Đừng:** tin tưởng log `[SUCCESS]`/`[INFO]` mà không biết `except Exception` rộng có thể đang che giấu lỗi thật — nếu sửa code liên quan đến checkpointer, luôn test bằng cách import trực tiếp và đọc log, đừng chỉ đọc code.
+
+### #8 — Supabase Direct Connection chỉ có DNS IPv6, không route được từ nhiều môi trường
+- **Triệu chứng:** `asyncpg`/Python `socket.getaddrinfo()` báo `gaierror: nodename nor servname provided, or not known` khi connect tới host `db.<project-ref>.supabase.co`, dù `dig`/`host` từ shell khác vẫn resolve được.
+- **Nguyên nhân:** host "Direct connection" của Supabase chỉ có bản ghi **AAAA (IPv6)**, không có **A (IPv4)**. Môi trường không có route IPv6 ra ngoài (sandbox, nhiều serverless platform) sẽ luôn fail ở bước này, bất kể connection string đúng hay sai.
+- **Đã sửa:** dùng **Session pooler** thay vì Direct connection — lấy URI ở Supabase → Connect → đổi tab từ "Direct connection" sang "Session pooler". Host dạng `aws-0-<region>.pooler.supabase.com` có cả A và AAAA.
+- **Đừng:** dùng Direct connection host (`db.*.supabase.co`) cho bất kỳ môi trường nào không chắc có IPv6 — luôn ưu tiên pooler cho app code, chỉ dùng Direct connection cho công cụ chạy trên máy có IPv6 (vd `psql` từ Mac cá nhân thường có sẵn IPv6).
+
+### #9 — Password chứa ký tự `@` chưa encode làm sai connection string
+- **Triệu chứng:** `asyncpg.connect()` báo `gaierror` với host bị lẫn ký tự lạ (`@@db...`), dù dùng đúng pooler host.
+- **Nguyên nhân:** password Postgres chứa 2 ký tự `@` chưa được percent-encode (`%40`). URI dạng `postgres://user:PASS@HOST` mà `PASS` có `@` sẽ làm nhiều parser (kể cả code debug tự viết bằng regex đơn giản) tách nhầm ranh giới `userinfo`/`host` nếu không tách theo dấu `@` **cuối cùng** (theo đúng RFC 3986) — `urllib.parse.urlsplit()` tách đúng, nhưng không phải thư viện nào cũng vậy.
+- **Đã sửa:** đổi password Supabase sang chỉ gồm chữ + số, không ký tự đặc biệt.
+- **Đừng:** tự chọn password chứa `@`, `:`, `/`, `#`, `?`, `%` cho bất kỳ service nào sẽ dùng qua connection-string URI, trừ khi chắc chắn đã percent-encode đúng. Khi debug lỗi tương tự, dùng `urllib.parse.urlsplit()` để tách host/user/password, đừng tự viết regex tách theo dấu `@` đầu tiên (chính tôi đã mắc lỗi y hệt này khi viết script debug).
+
+### #10 — `pgvector` Python package mặc định tìm type ở schema `public`, Supabase cài ở `extensions`
+- **Triệu chứng:** `register_vector(conn)` báo `ValueError: unknown type: public.vector`, dù `SELECT extname FROM pg_extension` xác nhận extension đã bật và các bảng dùng cột `vector(768)` đã tạo thành công.
+- **Nguyên nhân:** DDL (`CREATE TABLE ... vector(768)`) chạy được vì Postgres tra cứu type theo `search_path` (Supabase đã cấu hình sẵn gồm `extensions`). Nhưng `pgvector.asyncpg.register_vector()` tra cứu type theo schema **chỉ định rõ ràng** (mặc định `schema='public'`), không dùng `search_path` — Supabase cài extension `vector` vào schema `extensions`, không phải `public`.
+- **Đã sửa:** `app/storage/repository.py::_register_vector_codec()` gọi `register_vector(conn, schema="extensions")` thay vì để mặc định.
+- **Đừng:** bỏ tham số `schema="extensions"` này nếu sau này refactor lại `_register_vector_codec()` — nhìn tưởng thừa/không cần thiết nhưng chính là fix. Nếu sau này tự host Postgres (không phải Supabase) và extension nằm ở `public` thật, thì mới cần đổi lại — kiểm tra bằng `SELECT extname, nspname FROM pg_extension JOIN pg_namespace ON pg_namespace.oid = extnamespace WHERE extname='vector'` trước khi đổi.

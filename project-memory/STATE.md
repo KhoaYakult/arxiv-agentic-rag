@@ -10,14 +10,21 @@
 - Working tree: kiểm tra lại bằng `git status`, đừng tin memory này nếu đã lâu.
 - `make test` (20 test) xanh, `ruff check .` sạch — verify trong CI lẫn local, nhiều lần.
 
-## Phase 2 — đang chờ 2 credential trước khi test được thật
+## Phase 2 — Postgres đã kết nối thật, `repository.py` verify xong
 
-1. **`DATABASE_URL`** (Supabase Postgres) — user đang tạo project, chưa xong.
-2. **`GEMINI_API_KEY`** — đang **rỗng** trong `.env` (không phải chỉ chưa set, đã check trực tiếp bằng code). Cần key thật (aistudio.google.com/apikey, free) để test `GeminiEmbeddingProvider`.
+✅ **`DATABASE_URL`** (Supabase, Session pooler) hoạt động — verify bằng cách gọi thật `upsert_paper`/`get_paper`/`insert_sections`/`insert_chunks`/`delete_paper` trên DB thật, dọn sạch dữ liệu test sau đó.
 
-Đã scaffold xong phần không cần 2 credential trên để test cú pháp/logic cơ bản (`db/schema.sql`, `app/storage/repository.py`, `app/indexing/embeddings.py`) — verify bằng compile + ruff + import smoke-test, **CHƯA** verify bằng cách gọi thật Postgres/Gemini API. Xem `NEXT_STEPS.md` mục Phase 2 để biết chính xác cái gì đã xong/chưa.
+⏳ **`GEMINI_API_KEY`** vẫn còn **rỗng** trong `.env` — `app/indexing/embeddings.py` mới chỉ verify được nhánh lỗi (raise `ValueError` khi thiếu key), chưa gọi API thật.
 
-⚠️ Pipeline Phase 1 (ChromaDB + BM25 + HF embedding) **vẫn là pipeline đang chạy thật** — chưa đụng vào `routes.py`/`vector_store.py`/`bm25_store.py`, chưa cutover. Đừng xoá 2 file đó cho đến khi Postgres thật hoạt động và đã test lại end-to-end như đã làm ở Phase 1.
+### 3 bug thật đã tìm và sửa trong lúc test kết nối Supabase (không đoán được nếu không có DB thật)
+
+1. **Direct connection host chỉ có DNS IPv6 (AAAA), không có IPv4** → sandbox/nhiều môi trường không route được. Fix: dùng **Session pooler** (`aws-0-<region>.pooler.supabase.com`) thay vì Direct connection.
+2. **Password chứa ký tự `@` chưa encode** làm `asyncpg` tách sai host trong connection string (rơi vào lớp lỗi y hệt như 1 script debug của tôi tự mắc phải trước đó). Fix: đổi password sang chỉ chữ+số.
+3. **Supabase cài extension `pgvector` vào schema `extensions`, không phải `public`** (khác mặc định của thư viện Python `pgvector`, `register_vector()` mặc định `schema='public'`). Lỗi `unknown type: public.vector` dù extension đã bật và bảng đã tạo xong. Fix: `app/storage/repository.py` → `register_vector(conn, schema="extensions")`. **Đây là bug dễ tái diễn nhất nếu ai đó viết lại đoạn code này — nhớ kỹ.**
+
+Chi tiết đầy đủ trong `FIXED_BUGS.md` (mục #8, #9, #10).
+
+⚠️ Pipeline Phase 1 (ChromaDB + BM25 + HF embedding) **vẫn là pipeline đang chạy thật** — chưa đụng vào `routes.py`/`vector_store.py`/`bm25_store.py`, chưa cutover. Đừng xoá 2 file đó cho đến khi đã wire `repository.py` vào và test lại end-to-end như đã làm ở Phase 1.
 
 ## Đã verify xong trên máy thật (macOS, Docker Desktop)
 
