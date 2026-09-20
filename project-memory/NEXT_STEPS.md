@@ -15,17 +15,12 @@ Khi (3) xong → **Phase 1 đóng hẳn hoàn toàn**, bắt đầu Phase 2.
 
 Chi tiết đầy đủ + schema SQL ở `docs/ROADMAP.md`.
 
-**Đang chờ 1 credential từ user:**
-- [ ] `GEMINI_API_KEY` — đang rỗng trong `.env`. Cần key thật (aistudio.google.com/apikey, free) để test `GeminiEmbeddingProvider` — hiện chỉ verify được nhánh lỗi khi thiếu key.
-
-**Đã verify thật trên Supabase (không chỉ scaffold nữa):**
+**Toàn bộ scaffold Phase 2 đã verify thật (không còn credential nào thiếu):**
 - [x] `db/schema.sql` — đã chạy trên Supabase, 4 bảng `papers`/`sections`/`chunks`/`paper_cards` đã tồn tại thật, pgvector extension đã bật.
 - [x] `app/storage/repository.py` — **verify bằng cách gọi thật**: `upsert_paper`/`get_paper`/`delete_paper`/`insert_sections`/`insert_chunks` chạy đúng trên DB thật, FK `section_pk` đúng, FTS tự sinh đúng, embedding lưu đúng 768-dim. 3 bug môi trường đã tìm+sửa trong lúc test (xem `FIXED_BUGS.md` #8-#10: IPv6-only DNS, password có `@`, pgvector ở schema `extensions`).
+- [x] `app/indexing/embeddings.py` — **verify bằng cách gọi thật**: `embed_query`/`embed_documents` trả đúng 768-dim, cosine similarity đúng hướng (relevant 0.7555 > irrelevant 0.5828), xác nhận task_type bất đối xứng hoạt động đúng.
 - [x] `app/config.py` thêm `database_url`; dọn `upstash_redis_url`/`upstash_redis_token` (chưa từng dùng, đúng quyết định đã ghi ở ROADMAP mục 1)
 - [x] `requirements.txt` thêm `asyncpg`, `pgvector`, `tenacity`
-
-**Chưa verify (đợi `GEMINI_API_KEY`):**
-- [ ] `app/indexing/embeddings.py` — `GeminiEmbeddingProvider` chưa gọi API thật lần nào.
 
 **Cố ý CHƯA làm (rủi ro viết sai mà không test được, hoặc đợi bước trước xong):**
 - [ ] Hàm hybrid search (dense+sparse trong Postgres) — giờ có DB thật rồi, có thể viết + test được, ưu tiên làm tiếp theo

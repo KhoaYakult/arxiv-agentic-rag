@@ -14,7 +14,7 @@
 
 ✅ **`DATABASE_URL`** (Supabase, Session pooler) hoạt động — verify bằng cách gọi thật `upsert_paper`/`get_paper`/`insert_sections`/`insert_chunks`/`delete_paper` trên DB thật, dọn sạch dữ liệu test sau đó.
 
-⏳ **`GEMINI_API_KEY`** vẫn còn **rỗng** trong `.env` — `app/indexing/embeddings.py` mới chỉ verify được nhánh lỗi (raise `ValueError` khi thiếu key), chưa gọi API thật.
+✅ **`GEMINI_API_KEY`** đã có và verify xong — `embed_query`/`embed_documents` gọi API thật thành công, trả đúng 768-dim, cosine similarity đúng hướng (câu liên quan > câu không liên quan). Toàn bộ scaffold Phase 2 giờ đã verify thật, không còn phần nào "chưa test".
 
 ### 3 bug thật đã tìm và sửa trong lúc test kết nối Supabase (không đoán được nếu không có DB thật)
 
