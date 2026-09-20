@@ -1,4 +1,6 @@
-## Sơ đồ tổng quan quan hệ giữa các File (File-level Architecture)
+## 📜 Sơ đồ tổng quan quan hệ giữa các File — LỊCH SỬ (Phase 1, đã thay bằng Phase 2 ở Sơ đồ 2 bên dưới)
+
+> Giữ lại để tham khảo cấu trúc cũ. Kiến trúc hiện tại xem `Architecture.md` (mục Overview) hoặc Sơ đồ 2 ở cuối file này. `vector_store.py`/`bm25_store.py`/`hybrid_retriever.py` nhắc tới bên dưới giờ là dead code.
 
 ```mermaid
 flowchart TD
@@ -44,7 +46,7 @@ flowchart TD
 
 ---
 
-## Sơ đồ 1: Luồng dữ liệu chi tiết (Phase 1 hiện tại)
+## 📜 Sơ đồ 1: Luồng dữ liệu chi tiết Phase 1 — LỊCH SỬ (đã thay bằng Sơ đồ 2)
 
 ```mermaid
 flowchart TD
@@ -123,42 +125,57 @@ flowchart TD
 
 ---
 
-## Sơ đồ 2: Luồng dữ liệu tiến hóa (Target Phase 2 - Supabase Unified)
+## Sơ đồ 2: Luồng dữ liệu Phase 2 — HIỆN TẠI (cutover xong, verify thật 2026-09-20)
+
+> Bản này đã sửa lại theo đúng code thật, khác vài chỗ so với bản phác thảo "Target" ban đầu (ghi chú "❌ chưa làm" ở dưới cho những chỗ khác dự kiến).
 
 ```mermaid
 flowchart TD
-    subgraph PHASE2_STORAGE ["PHASE 2: UNIFIED POSTGRESQL (SUPABASE)"]
+    subgraph PG ["Supabase Postgres (Session pooler - xem FIXED_BUGS.md #8)"]
         direction TB
-        
-        subgraph TABLES ["PostgreSQL Tables (Single Source of Truth)"]
-            T_PAPERS["papers<br/>id, title, file_hash, num_pages, num_chunks"]
-            T_SECTS["sections (Parent)<br/>id, paper_id FK, name, text, page_start, page_end"]
-            T_CHUNKS["chunks (Child)<br/>id, paper_id FK, section_pk FK, text, page_num<br/>embedding: vector(768) [HNSW Index]<br/>fts: tsvector [GIN Index]"]
-            T_CARDS["paper_cards (Summary & Routing)<br/>paper_id FK, summary, embedding vector(768)"]
-            T_CHECKPOINT["langgraph_checkpoints<br/>(Managed by AsyncPostgresSaver)"]
+
+        subgraph TABLES ["Bảng chính"]
+            T_PAPERS["papers<br/>paper_id PK, title, file_hash, num_pages, num_chunks, status"]
+            T_SECTS["sections (Parent)<br/>id, paper_id FK, section_id, name, text, page_start/end"]
+            T_CHUNKS["chunks (Child)<br/>id, chunk_id UNIQUE, paper_id FK, section_pk FK, text<br/>embedding: vector(768) [HNSW] · fts: tsvector [GIN, tự sinh]"]
+            T_CARDS["paper_cards<br/>❌ CHƯA DÙNG - schema có sẵn, đợi Phase 4 (multi-paper routing)"]
         end
 
-        T_PAPERS -->|"1 - N"| T_SECTS
-        T_SECTS -->|"1 - N"| T_CHUNKS
-        T_PAPERS -->|"1 - 1"| T_CARDS
+        T_PAPERS -->|"1-N"| T_SECTS
+        T_SECTS -->|"1-N (section_pk, có thể NULL)"| T_CHUNKS
     end
 
-    subgraph PHASE2_INGESTION ["Ingestion Flow Mới"]
-        PDF2["PDF"] --> PARSE2["parser.py (page-aware)"]
-        PARSE2 --> CHUNK2["chunker.py"]
-        CHUNK2 -->|"1 SQL Transaction DUY NHẤT"| TABLES
-        note1["Không còn nguy cơ mất đồng bộ:<br/>Tạo chunk + sinh vector + sinh FTS<br/>diễn ra atomic trong 1 câu INSERT"]
+    subgraph ING ["Ingestion (POST /upload) - app/api/routes.py"]
+        PDF2["PDF"] --> PARSE2["parser.py<br/>❌ CHƯA page-aware - page_num luôn NULL"]
+        PARSE2 --> CHUNK2["chunker.py (không đổi từ Phase 1)"]
+        CHUNK2 --> EMB2["embeddings.GeminiEmbeddingProvider<br/>batch <=100, tự cho 61s/batch (quota free-tier - bug #11)"]
+        EMB2 --> INS1["repository.upsert_paper()"]
+        INS1 --> INS2["repository.insert_sections()<br/>1 transaction rieng"]
+        INS2 --> INS3["repository.insert_chunks()<br/>1 transaction rieng (KHONG chung voi insert_sections)"]
+        INS3 --> TABLES
     end
 
-    subgraph PHASE2_RETRIEVAL ["Retrieval Flow Mới"]
-        Q2["User Query"] --> EMB_GEMINI["Gemini Embedding<br/>gemini-embedding-001 (768D)"]
-        
-        EMB_GEMINI --> SQL_QUERY["1 CÂU SQL HYBRID RRF DUY NHẤT<br/>(pgvector Cosine + Postgres FTS Match)"]
-        SQL_QUERY --> T_CHUNKS
-        
-        T_CHUNKS -->|"JOIN section_pk"| EXPAND_CTX["Parent-Child Retrieval Thật Sự:<br/>Chunk match -> Nạp cả Parent Section!"]
-        EXPAND_CTX --> RERANK2["Rerank (Cohere / Jina)"]
-        RERANK2 --> AGENT2["LangGraph Agent (CRAG)"]
-        AGENT2 <--> T_CHECKPOINT
+    subgraph RET ["Retrieval (POST /ask) - app/agent/rag_graph.py (async)"]
+        Q2["User Query"] --> EMB_GEMINI["embed_query() - task_type=RETRIEVAL_QUERY"]
+
+        EMB_GEMINI --> HSEARCH["repository.hybrid_search()"]
+        HSEARCH --> DENSE["dense_search()<br/>SQL: ORDER BY embedding <=> $query LIMIT 20"]
+        HSEARCH --> SPARSE["sparse_search()<br/>SQL: WHERE fts @@ websearch_to_tsquery(...) LIMIT 20"]
+        DENSE -.->|"asyncio.gather - chay song song"| SPARSE
+        DENSE --> RRF2["reciprocal_rank_fusion()<br/>2 KET QUA SQL RIENG, gop trong PYTHON<br/>(khong phai 1 cau SQL RRF duy nhat)"]
+        SPARSE --> RRF2
+        DENSE --> TABLES
+        SPARSE --> TABLES
+
+        RRF2 --> RERANK2["reranker.RerankerManager<br/>Cohere / local CrossEncoder - KHONG DOI tu Phase 1, Jina chua lam"]
+        RERANK2 --> AGENT2["LangGraph Agent (CRAG) - retrieve/grade/rewrite/generate deu async"]
+        AGENT2 <--> CHECKPOINT["AsyncSqliteSaver (data/chat_memory.db)<br/>❌ CHƯA phải AsyncPostgresSaver - van la SQLite, chi doi sync sang async"]
     end
 ```
+
+**Khác với bản "Target" phác thảo ban đầu — 3 chỗ đã cố ý làm khác đi khi thật sự code:**
+1. **Không có "1 SQL transaction duy nhất"** cho ingestion — `insert_sections()` và `insert_chunks()` là 2 transaction riêng (đơn giản hơn, vẫn đủ an toàn vì `section_pk` map được tạo xong trước khi insert chunks).
+2. **Không có "1 câu SQL hybrid RRF duy nhất"** — dense và sparse là 2 câu SQL riêng chạy song song (`asyncio.gather`), RRF fusion làm ở tầng Python bằng hàm đã test sẵn từ Phase 1 (`reciprocal_rank_fusion()`), không viết lại thuật toán RRF bằng SQL.
+3. **"Parent-Child Retrieval thật sự" (mở rộng chunk ra cả parent section) chưa làm** — `hybrid_search()` hiện chỉ trả `parent_section_name` (qua `LEFT JOIN`) để hiển thị, chưa nạp toàn bộ text của parent section vào context. Đây là backlog Phase 3 ("small-to-big" retrieval).
+
+Checkpointer (`AsyncPostgresSaver`) và `paper_cards` (Phase 4) vẫn như dự kiến ban đầu — chưa làm, không phải khác đi.

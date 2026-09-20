@@ -73,10 +73,12 @@ pytest fixtures/class-based test grouping · ruff rule selection & per-file-igno
 
 ---
 
-## Phase 2 — Supabase là nguồn sự thật duy nhất (tuần 3–6) ⭐ *phase quan trọng nhất*
+## Phase 2 — Supabase là nguồn sự thật duy nhất ⭐ *phase quan trọng nhất* — 🟡 ĐANG LÀM, phần lõi đã xong
 
 **Mục tiêu:** dữ liệu sống sót qua redeploy; chunk có page number; parent section **thật sự tồn tại** (hiện `ParentSection` được tạo rồi vứt đi — "parent-child" chỉ có trên tên).
 **CV claim:** *"migrated from ephemeral file-based stores to a single Postgres+pgvector backend; zero data loss on deploy"*
+
+**Trạng thái (2026-09-20):** `/upload`, `/papers`, `/ask` đã cutover hoàn toàn sang Postgres, verify thật qua HTTP với PDF 182 chunks thật. Chi tiết đầy đủ + 4 bug môi trường tìm được lúc test (IPv6-only DNS, password có `@`, pgvector ở schema `extensions`, Gemini quota tính theo item/phút) ở `project-memory/FIXED_BUGS.md` #8-#11. Còn thiếu: page-aware chunking, `BackgroundTasks`, `AsyncPostgresSaver` thật (đang tạm `AsyncSqliteSaver`), xoá code Phase 1 cũ.
 
 ### Schema
 ```sql
@@ -99,17 +101,23 @@ paper_cards(paper_id FK, summary, embedding vector(768))
 `file_hash` dùng để dedup upload.
 
 ### Việc cần làm
+- [x] Viết `app/storage/repository.py` (asyncpg + pgvector) thay `_load_registry`/`_save_registry`, `VectorStoreManager`, `BM25StoreManager`. CRUD `papers`/`sections`/`chunks` + `hybrid_search()` (dense pgvector `<=>` + sparse Postgres FTS, gộp bằng `reciprocal_rank_fusion()` tái dùng từ Phase 1).
+- [x] `EmbeddingProvider` mới (`app/indexing/embeddings.py`, Gemini `gemini-embedding-001` 768-dim) có retry (`tenacity`) + tự throttle theo quota free-tier (61s giữa batch >100 item — bug #11).
+- [x] `routes.py`: `/upload` ghi thẳng Postgres, `/papers` đọc Postgres, `/ask` check tồn tại qua Postgres. `rag_graph.py` chuyển hẳn sang async (bắt buộc vì `asyncpg` chỉ async) — checkpointer đổi sang `AsyncSqliteSaver` (vẫn SQLite, chưa phải Postgres).
+- [x] Dense + sparse chạy song song bằng `asyncio.gather` trong `hybrid_search()`.
 - [ ] `ChildChunk` thêm `page_num`, `char_start`, `char_end`, `level`.
 - [ ] `parser.py` trả `list[dict]` per-page có offset; `split_parent_sections` nhận input page-aware để map heading → trang.
-- [ ] Viết `app/storage/repository.py` (asyncpg/SQLAlchemy) thay `_load_registry`/`_save_registry` (`routes.py:51-62`), `VectorStoreManager`, `BM25StoreManager` → **xoá `vector_store.py`, `bm25_store.py`, toàn bộ pickle**.
-- [ ] `EmbeddingProvider` mới (Gemini) có retry + exponential backoff + timeout (`tenacity`). Hiện `HuggingFaceAPIEmbeddings` **không có retry nào** — 1 batch lỗi là abort cả ingest.
-- [ ] `/upload` → `BackgroundTasks`, trả `202` + `status`, poll qua `GET /papers/{id}/status`. Hiện là thân **sync trong `async def`** → block event loop suốt parse+embed.
-- [ ] Thêm `DELETE /papers/{id}` (cascade). Hiện chỉ có `reset_db()` xoá **tất cả** paper.
-- [ ] Dense + sparse chạy song song bằng `asyncio.gather` (hiện tuần tự). Singleton retriever qua FastAPI `lifespan` (hiện mỗi `HybridRetriever()` re-init Chroma + HF client).
-- [ ] Chuyển checkpointer SQLite → `AsyncPostgresSaver`.
+- [ ] `/upload` → `BackgroundTasks`, trả `202` + `status`, poll qua `GET /papers/{id}/status`. **Ưu tiên cao hơn dự kiến ban đầu** — giờ upload paper >100 chunk mất thêm ≥61s do rate-limit cooldown (bug #11), block request rất lâu.
+- [ ] Thêm `DELETE /papers/{id}` (cascade). `repository.delete_paper()` đã có sẵn, chỉ thiếu route.
+- [ ] Singleton connection pool qua FastAPI `lifespan` (hiện `get_pool()` lazy-singleton per-process, đúng nhưng chưa có cleanup lúc shutdown).
+- [ ] Chuyển checkpointer `AsyncSqliteSaver` → `AsyncPostgresSaver` thật (dùng `langgraph-checkpoint-postgres`) — chat history vẫn mất khi Railway redeploy cho đến khi xong bước này.
+- [ ] File dedup qua `file_hash` — cột + `get_paper_by_hash()` đã có trong `repository.py`, `/upload` chưa gọi tới.
+- [ ] **Xoá hẳn** `app/indexing/vector_store.py`, `bm25_store.py`, `hybrid_retriever.py` — đã là dead code (không còn được `routes.py`/`rag_graph.py` import), cố ý giữ lại vài ngày phòng cần rollback trước khi xoá thật.
 
 ### Kiểm chứng
-Upload 3 paper → `railway redeploy` → `/papers` vẫn đủ 3, `/ask` trên paper đầu vẫn hit **cả** dense lẫn sparse · integration test với Postgres service container trong CI · **assert: sau khi upload paper B, số sparse-hit của paper A không đổi** (chính là bug #6).
+✅ **Đã verify qua HTTP thật (2026-09-20)**, xem `project-memory/STATE.md`: upload PDF 182 chunks thật → Postgres, `/ask` với câu hỏi tổng quát trả lời đúng (`grade:"yes"`, 5 sources hợp lý), câu hỏi số liệu trong bảng bị từ chối đúng cách (`grade:"no"`, không hallucinate — ghi nhận là backlog Phase 3 chứ không phải bug). `/papers` phản ánh đúng Postgres.
+
+Còn thiếu: verify qua `railway redeploy` thật (chưa deploy code Phase 2 lên Railway) · integration test Postgres trong CI (hiện CI chỉ chạy 20 unit test thuần, không cần network — chưa có test cần DB thật).
 
 ### Kiến thức cần học
 pgvector (HNSW vs IVFFlat, `ef_search`) · Postgres FTS (`tsvector`, `ts_rank_cd`, GIN) · asyncpg pooling · FastAPI `lifespan` + `BackgroundTasks` · Alembic migration.
