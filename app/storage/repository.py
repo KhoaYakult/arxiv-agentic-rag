@@ -127,8 +127,13 @@ async def get_paper(paper_id: str) -> dict | None:
 
 
 async def list_papers() -> list[dict]:
+    """Chi tra paper status='ready'. Tu khi /upload chay nen (BackgroundTasks),
+    paper 'processing'/'failed' se ton tai that trong bang mot khoang thoi
+    gian - loc o day de khong cho UI chon phai paper chua index xong."""
     pool = await get_pool()
-    rows = await pool.fetch("SELECT * FROM papers ORDER BY created_at DESC")
+    rows = await pool.fetch(
+        "SELECT * FROM papers WHERE status = 'ready' ORDER BY created_at DESC"
+    )
     return [dict(r) for r in rows]
 
 

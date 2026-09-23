@@ -24,7 +24,12 @@ from pydantic import BaseModel, Field
 # ──────────────────────────────────────────────────────────────────────────────
 
 class UploadResponse(BaseModel):
-    """Ket qua sau khi upload va xu ly xong 1 file PDF."""
+    """
+    Ket qua ngay sau khi nhan file PDF (KHONG cho parse+embed+index xong roi
+    moi tra ve - viec do chay nen qua BackgroundTasks vi co the mat >61s do
+    Gemini free-tier rate-limit cooldown, xem app/indexing/embeddings.py).
+    Goi GET /papers/{paper_id}/status de biet khi nao xu ly xong.
+    """
 
     paper_id: str = Field(
         description="ID duy nhat cua bai bao (slug tu ten file PDF)."
@@ -32,8 +37,12 @@ class UploadResponse(BaseModel):
     title: str = Field(
         description="Ten bai bao (lay tu ten file PDF)."
     )
+    status: Literal["processing", "ready", "failed"] = Field(
+        description="Luon la 'processing' ngay sau khi upload - viec index chay nen."
+    )
     num_chunks: int = Field(
-        description="Tong so child-chunks da duoc index vao ChromaDB."
+        default=0,
+        description="Luon la 0 luc nay - chua biet duoc cho den khi xu ly nen xong.",
     )
     message: str = Field(
         description="Thong bao ket qua xu ly."
@@ -112,6 +121,20 @@ class PapersResponse(BaseModel):
         description="Danh sach cac bai bao da upload.",
     )
     total: int = Field(description="Tong so bai bao.")
+
+
+class PaperStatusResponse(BaseModel):
+    """Trang thai xu ly cua 1 bai bao - dung de client poll sau khi /upload."""
+
+    paper_id: str = Field(description="ID duy nhat cua bai bao.")
+    title: str = Field(description="Ten bai bao.")
+    status: Literal["processing", "ready", "failed"] = Field(
+        description="'processing' = dang parse/embed/index nen; "
+                    "'ready' = da xong, hoi duoc; 'failed' = loi, xem log server."
+    )
+    num_chunks: int = Field(
+        description="So chunks da index. Chi co y nghia khi status='ready'."
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

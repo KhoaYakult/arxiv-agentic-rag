@@ -1,6 +1,6 @@
 # State
 
-> Cập nhật: 2026-09-19
+> Cập nhật: 2026-09-23
 
 ## Đang ở đâu
 
@@ -23,6 +23,8 @@
 `rag_graph.py` **đã chuyển hẳn sang async** (bắt buộc vì `asyncpg` chỉ hỗ trợ async) — checkpointer đổi `SqliteSaver`→`AsyncSqliteSaver` (vẫn SQLite, chưa phải Postgres, đó là bước riêng).
 
 ⚠️ `app/indexing/vector_store.py`/`bm25_store.py`/`hybrid_retriever.py` **không còn được dùng nữa** (routes.py/rag_graph.py đã trỏ hết sang Postgres) nhưng **cố ý CHƯA xoá file** — giữ lại phòng cần rollback nhanh, chờ user xác nhận ổn định vài ngày rồi mới xoá hẳn.
+
+✅ **`/upload` đã chuyển sang `BackgroundTasks` — verify thật qua HTTP (2026-09-23).** Response `202` trả về gần như tức thì (không còn block event loop suốt parse+embed+rate-limit-cooldown); parse/embed/index chạy nền trong `_process_and_index_paper()`, lỗi được bắt và ghi `papers.status='failed'` thay vì raise. Thêm `GET /papers/{paper_id}/status` để poll. `repository.list_papers()` giờ lọc `WHERE status='ready'` (fix theo đúng docstring cũ, không phải feature mới — cutover trước không cần lọc vì `/upload` đồng bộ nên client chưa từng thấy paper `processing`). `streamlit_app.py` cập nhật theo (poll status thay vì đọc `num_chunks` ngay trong response upload). Test thật: upload 182-chunk PDF → 202 ngay lập tức → status `processing` → `/papers` rỗng đúng lúc đó → ~10s sau `ready`, `num_chunks=182` → `/ask` trả lời đúng.
 
 Bug #11 mới tìm: Gemini free tier quota tính theo **số embedding/phút** (không phải số HTTP call) — `embed_documents()` giờ tự chia batch + nghỉ 61s. Nghĩa là **upload paper nhiều chunk (>100) giờ chậm hơn hẳn** (100 chunk đầu tức thì, mỗi 100 chunk tiếp theo +61s chờ) — đây là lý do BackgroundTasks cho `/upload` (item cũ trong NEXT_STEPS) giờ quan trọng hơn trước, không chỉ là "nice to have".
 

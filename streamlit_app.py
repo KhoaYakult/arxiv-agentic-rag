@@ -13,6 +13,7 @@ Cach chay:
 """
 
 import os
+import time
 import uuid
 from datetime import datetime
 
@@ -326,13 +327,16 @@ def get_papers() -> list[dict]:
 
 
 def upload_pdf(file_bytes: bytes, filename: str, paper_id: str | None = None) -> dict | None:
-    """Upload file PDF len FastAPI server."""
+    """
+    Upload file PDF len FastAPI server. Server tra ve 202 NGAY (khong doi
+    parse/embed/index xong) - viec do chay nen, xem app/api/routes.py.
+    Goi poll_paper_status() sau ham nay de biet khi nao thuc su xong.
+    """
     try:
         files = {"file": (filename, file_bytes, "application/pdf")}
         data = {"paper_id": paper_id} if paper_id else {}
-        # Tăng timeout lên 300s (5 phút) cho các file PDF nặng (14MB+)
-        r = requests.post(f"{API_BASE}/upload", files=files, data=data, timeout=300)
-        if r.status_code == 201:
+        r = requests.post(f"{API_BASE}/upload", files=files, data=data, timeout=30)
+        if r.status_code == 202:
             return r.json()
         else:
             try:
@@ -342,6 +346,26 @@ def upload_pdf(file_bytes: bytes, filename: str, paper_id: str | None = None) ->
             return {"error": err_detail}
     except Exception as e:
         return {"error": str(e)}
+
+
+def poll_paper_status(paper_id: str, timeout_sec: int = 600, interval_sec: float = 2.0) -> dict:
+    """
+    Poll GET /papers/{paper_id}/status cho den khi status != 'processing'.
+    timeout_sec mac dinh 10 phut - du du cho paper nhieu chunk phai cho
+    nhieu vong cooldown 61s cua Gemini free tier (xem embeddings.py).
+    """
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"{API_BASE}/papers/{paper_id}/status", timeout=10)
+            if r.status_code == 200:
+                info = r.json()
+                if info["status"] != "processing":
+                    return info
+        except Exception:
+            pass
+        time.sleep(interval_sec)
+    return {"status": "failed", "error": "Timeout khi cho index - kiem tra log server."}
 
 
 def ask_question(question: str, paper_id: str, thread_id: str | None) -> dict | None:
@@ -395,16 +419,22 @@ with st.sidebar:
     )
 
     if st.button("⬆️  Upload & Index", disabled=not (server_ok and uploaded_file), use_container_width=True):
-        with st.spinner("Đang xử lý PDF... có thể mất 30-60 giây"):
+        with st.spinner("Đang gửi PDF lên server..."):
             result = upload_pdf(
                 file_bytes=uploaded_file.read(),
                 filename=uploaded_file.name,
                 paper_id=custom_id.strip() or None,
             )
         if result and "error" not in result:
-            st.success(f"✅ {result['message']}")
-            st.caption(f"Paper ID: `{result['paper_id']}` — {result['num_chunks']} chunks")
-            st.rerun()
+            # /upload trả 202 ngay — parse/embed/index chạy nền ở server.
+            # Poll status ở đây để không phải đoán khi nào xong.
+            with st.spinner("Đang parse + embed + index (có thể mất vài phút nếu paper nhiều chunk)..."):
+                final = poll_paper_status(result["paper_id"])
+            if final.get("status") == "ready":
+                st.success(f"✅ Index thành công! {final['num_chunks']} chunks đã sẵn sàng.")
+                st.rerun()
+            else:
+                st.error(f"❌ Index thất bại: {final.get('error', 'không rõ nguyên nhân, xem log server.')}")
         elif result:
             st.error(f"❌ {result.get('error')}")
 

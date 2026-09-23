@@ -30,10 +30,16 @@ Chi tiết đầy đủ + schema SQL ở `docs/ROADMAP.md`.
 - [x] Bug #11 (xem `FIXED_BUGS.md`): Gemini free tier quota tính theo **số embedding/phút** chứ không phải số HTTP call — `embed_documents()` giờ tự throttle 61s giữa các batch >100 text.
 - [x] `.gitignore`: thêm `data/chat_memory.db-shm`/`-wal` (sidecar file mới do `AsyncSqliteSaver`/`aiosqlite` dùng WAL mode, sync `sqlite3` cũ không sinh ra 2 file này).
 
-**Cố ý CHƯA làm (không thuộc phạm vi cutover hôm nay):**
+**`/upload` → BackgroundTasks HOÀN TẤT — verify thật qua HTTP (2026-09-23):**
+- [x] `POST /upload` giờ tách 2 phần: đồng bộ (validate + lưu file + `upsert_paper(status="processing")`) trả **202** gần như tức thì; phần chậm (`process_paper_ingestion` + embed + `insert_sections`/`insert_chunks` + `set_paper_status`) chạy trong `_process_and_index_paper()` qua FastAPI `BackgroundTasks`. Lỗi trong task nền bị bắt và ghi `status="failed"` (không raise — không còn request nào để nhận HTTPException).
+- [x] Thêm `GET /papers/{paper_id}/status` (`PaperStatusResponse`: `paper_id`/`title`/`status`/`num_chunks`) để client poll.
+- [x] `repository.list_papers()` đổi query thêm `WHERE status = 'ready'` — đây là **fix đúng theo docstring cũ** ("đã index thành công"), không phải feature mới: trước đây `/upload` đồng bộ nên client không bao giờ thấy được paper `processing`; giờ có khoảng thời gian thật paper ở trạng thái đó, nếu không lọc thì dropdown Streamlit sẽ cho chọn paper rỗng.
+- [x] `streamlit_app.py`: `upload_pdf()` đổi kỳ vọng `201`→`202`; thêm `poll_paper_status()` (poll 2s/lần, timeout 600s) — nút "Upload & Index" giờ hiện 2 spinner nối tiếp (gửi file → đợi index nền) thay vì 1 spinner chờ response đồng bộ như cũ.
+- [x] Verify thật qua HTTP (uvicorn thật, port 8010): upload PDF 182 chunks → `202` trả về ngay lập tức (không block) → status `processing` → `/papers` list rỗng đúng lúc đang xử lý → sau ~10s status chuyển `ready`, `num_chunks=182` → `/papers` hiện đúng → `/ask` trả lời đúng với 5 sources. Dọn sạch dữ liệu test (`repository.delete_paper`) sau đó.
+
+**Cố ý CHƯA làm:**
 - [ ] **Xoá hẳn** `app/indexing/vector_store.py`, `app/indexing/bm25_store.py`, `app/indexing/hybrid_retriever.py` — đã KHÔNG còn được routes.py/rag_graph.py dùng nữa (cutover xong), nhưng cố ý giữ lại code cũ thêm 1 nhịp phòng khi cần rollback nhanh. Xoá ở bước sau khi user xác nhận ổn định.
-- [ ] `/upload` chuyển sang `BackgroundTasks`, trả `202` + endpoint polling status (quan trọng hơn trước — giờ upload paper nhiều chunk có thể mất >61s do rate-limit cooldown, block request rất lâu)
-- [ ] `DELETE /papers/{id}`; singleton connection pool qua FastAPI `lifespan` (hiện `get_pool()` vẫn lazy-singleton per-process, đã đúng, nhưng chưa có cleanup lúc shutdown qua `lifespan`)
+- [ ] `DELETE /papers/{id}` — hàm `repository.delete_paper()` đã có sẵn (CASCADE qua FK) nhưng **chưa có route HTTP nào gọi tới nó** (đã confirm bằng `curl -X DELETE` → 404 trong lúc dọn data test). Singleton connection pool qua FastAPI `lifespan` (hiện `get_pool()` vẫn lazy-singleton per-process, đã đúng, nhưng chưa có cleanup lúc shutdown qua `lifespan`)
 - [ ] Checkpointer → `AsyncPostgresSaver` thật (đang tạm dùng `AsyncSqliteSaver`, vẫn SQLite - chat history vẫn mất khi Railway redeploy, chưa xong hoàn toàn theo ROADMAP)
 - [ ] `ChildChunk` thêm `page_num`/`char_start`/`char_end`/`level` + `chunker.py` xử lý page-aware (`insert_chunks()` hiện ghi NULL cho các cột này)
 - [ ] File dedup qua `file_hash` (cột đã có trong schema, `get_paper_by_hash()` đã viết trong repository.py, nhưng `/upload` chưa gọi tới)

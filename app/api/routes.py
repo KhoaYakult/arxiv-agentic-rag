@@ -10,9 +10,17 @@ Cac endpoint:
   POST /ask             — Hoi Agent va nhan cau tra loi
 
 Luong xu ly /upload (Phase 2 - Postgres/Supabase):
-  PDF file -> chunker.process_paper_ingestion()
-           -> embeddings.get_embedding_provider().embed_documents()
-           -> repository.upsert_paper() + insert_sections() + insert_chunks()
+  Request tra ve 202 NGAY sau khi luu file + tao row papers(status='processing') -
+  phan cham (parse/embed/index) chay nen qua BackgroundTasks, vi Gemini
+  free-tier rate-limit cooldown co the lam buoc embed mat >61s (xem
+  app/indexing/embeddings.py) - block ca request se qua lau va de bi client
+  timeout. Client poll GET /papers/{paper_id}/status de biet khi nao xong:
+    PDF file -> (dong bo, nhanh) luu file + upsert_paper(status="processing")
+             -> tra ve 202
+             -> (nen) chunker.process_paper_ingestion()
+             -> (nen) embeddings.get_embedding_provider().embed_documents()
+             -> (nen) repository.insert_sections() + insert_chunks()
+             -> (nen) set_paper_status("ready") hoac ("failed") neu loi
 
 Luong xu ly /ask:
   AskRequest -> rag_graph.ask() -> AskResponse
@@ -29,7 +37,15 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 
 from app.api.schemas import (
     AskRequest,
@@ -37,6 +53,7 @@ from app.api.schemas import (
     HealthResponse,
     PaperInfo,
     PapersResponse,
+    PaperStatusResponse,
     SourceChunk,
     UploadResponse,
 )
@@ -100,14 +117,45 @@ async def list_papers() -> PapersResponse:
 # ENDPOINT 3: UPLOAD PDF
 # ──────────────────────────────────────────────────────────────────────────────
 
+async def _process_and_index_paper(pdf_path: Path, paper_id: str) -> None:
+    """
+    Chay NEN sau khi /upload da tra response 202 - khong con request nao dang
+    cho de nhan HTTPException nua, nen loi o day duoc bat lai va ghi vao
+    papers.status='failed' thay vi raise (raise se chi lam crash task nen
+    trong im lang, client se cho status='processing' mai mai).
+    """
+    from app.storage import repository
+
+    try:
+        from app.ingestion.chunker import process_paper_ingestion
+
+        # Khong dung cache JSON cua Phase 1 (load_chunks_from_file) - cache do
+        # chi luu ChildChunk, khong luu ParentSection, se mat du lieu sections
+        # can cho insert_sections() ben duoi. Parse lai moi lan upload.
+        sections, chunks = process_paper_ingestion(pdf_path, paper_id=paper_id)
+
+        from app.indexing.embeddings import get_embedding_provider
+
+        provider = get_embedding_provider()
+        embeddings = provider.embed_documents([c.text for c in chunks])
+
+        section_pk_map = await repository.insert_sections(paper_id, sections)
+        await repository.insert_chunks(paper_id, chunks, embeddings, section_pk_map)
+        await repository.set_paper_status(paper_id, status="ready", num_chunks=len(chunks))
+    except Exception as e:
+        print(f"[ERROR] Xu ly nen paper_id='{paper_id}' that bai: {e}", flush=True)
+        await repository.set_paper_status(paper_id, status="failed")
+
+
 @router.post(
     "/upload",
     response_model=UploadResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Upload file PDF bai bao va tu dong index",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Upload file PDF bai bao, index chay nen",
     tags=["Papers"],
 )
 async def upload_paper(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="File PDF bai bao can upload."),
     paper_id: str | None = Form(
         default=None,
@@ -115,11 +163,10 @@ async def upload_paper(
     ),
 ) -> UploadResponse:
     """
-    Upload 1 file PDF, sau do tu dong:
-    1. Luu file vao thu muc data/
-    2. Parse PDF -> Markdown (dung pymupdf4llm)
-    3. Chunk Markdown -> Parent Sections + Child Chunks
-    4. Embed chunks (Gemini) + ghi papers/sections/chunks vao Postgres
+    Upload 1 file PDF. Luu file + tao paper (status="processing") roi tra ve
+    202 NGAY - parse/embed/index chay nen (co the mat hang chuc giay do
+    Gemini free-tier rate-limit cooldown, xem app/indexing/embeddings.py).
+    Goi GET /papers/{paper_id}/status de biet khi nao xong.
     """
     from app.storage import repository
 
@@ -150,54 +197,53 @@ async def upload_paper(
             detail=f"Loi khi luu file: {e}",
         )
 
-    # ── Parse PDF + Chunk ──
-    # Luu y: khong dung cache JSON cua Phase 1 (load_chunks_from_file) nua -
-    # cache do chi luu ChildChunk, khong luu ParentSection, nen se mat du lieu
-    # sections can cho insert_sections() ben duoi. Parse lai moi lan upload.
-    try:
-        from app.ingestion.chunker import process_paper_ingestion
-
-        sections, chunks = process_paper_ingestion(pdf_path, paper_id=paper_id)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Loi khi xu ly PDF: {e}",
-        )
-
-    # ── Embed chunks (Gemini) ──
-    try:
-        from app.indexing.embeddings import get_embedding_provider
-
-        provider = get_embedding_provider()
-        embeddings = provider.embed_documents([c.text for c in chunks])
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Loi khi tao embedding: {e}",
-        )
-
-    # ── Ghi vao Postgres (papers + sections + chunks) ──
-    try:
-        await repository.upsert_paper(
-            paper_id=paper_id,
-            title=Path(file.filename).stem,
-            filename=file.filename,
-            status="processing",
-        )
-        section_pk_map = await repository.insert_sections(paper_id, sections)
-        await repository.insert_chunks(paper_id, chunks, embeddings, section_pk_map)
-        await repository.set_paper_status(paper_id, status="ready", num_chunks=len(chunks))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Loi khi ghi vao Postgres: {e}",
-        )
+    title = Path(file.filename).stem
+    await repository.upsert_paper(
+        paper_id=paper_id,
+        title=title,
+        filename=file.filename,
+        status="processing",
+    )
+    background_tasks.add_task(_process_and_index_paper, pdf_path, paper_id)
 
     return UploadResponse(
         paper_id=paper_id,
-        title=Path(file.filename).stem,
-        num_chunks=len(chunks),
-        message=f"Upload va index thanh cong! {len(chunks)} chunks da san sang.",
+        title=title,
+        status="processing",
+        num_chunks=0,
+        message="Da nhan file, dang parse + embed + index nen. "
+                f"Goi GET /papers/{paper_id}/status de kiem tra tien do.",
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ENDPOINT 3b: TRANG THAI XU LY 1 PAPER (poll sau /upload)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/papers/{paper_id}/status",
+    response_model=PaperStatusResponse,
+    summary="Kiem tra tien do xu ly 1 paper sau khi upload",
+    tags=["Papers"],
+)
+async def get_paper_status(paper_id: str) -> PaperStatusResponse:
+    """Client poll endpoint nay sau /upload cho den khi status='ready' (hoac
+    'failed'). Khac /papers (chi liet ke paper 'ready') - endpoint nay tra ve
+    ca paper dang 'processing'/'failed' vi client can biet chinh xac paper
+    do dang o trang thai nao."""
+    from app.storage import repository
+
+    paper = await repository.get_paper(paper_id)
+    if paper is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Khong tim thay paper_id='{paper_id}'.",
+        )
+    return PaperStatusResponse(
+        paper_id=paper["paper_id"],
+        title=paper["title"],
+        status=paper["status"],
+        num_chunks=paper["num_chunks"],
     )
 
 

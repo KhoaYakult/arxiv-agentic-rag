@@ -78,7 +78,7 @@ pytest fixtures/class-based test grouping · ruff rule selection & per-file-igno
 **Mục tiêu:** dữ liệu sống sót qua redeploy; chunk có page number; parent section **thật sự tồn tại** (hiện `ParentSection` được tạo rồi vứt đi — "parent-child" chỉ có trên tên).
 **CV claim:** *"migrated from ephemeral file-based stores to a single Postgres+pgvector backend; zero data loss on deploy"*
 
-**Trạng thái (2026-09-20):** `/upload`, `/papers`, `/ask` đã cutover hoàn toàn sang Postgres, verify thật qua HTTP với PDF 182 chunks thật. Chi tiết đầy đủ + 4 bug môi trường tìm được lúc test (IPv6-only DNS, password có `@`, pgvector ở schema `extensions`, Gemini quota tính theo item/phút) ở `project-memory/FIXED_BUGS.md` #8-#11. Còn thiếu: page-aware chunking, `BackgroundTasks`, `AsyncPostgresSaver` thật (đang tạm `AsyncSqliteSaver`), xoá code Phase 1 cũ.
+**Trạng thái (2026-09-23):** `/upload`, `/papers`, `/ask` đã cutover hoàn toàn sang Postgres, verify thật qua HTTP với PDF 182 chunks thật. `/upload` giờ chạy nền qua `BackgroundTasks` (trả `202` gần như tức thì, poll `GET /papers/{id}/status`) — verify thật qua HTTP. Chi tiết đầy đủ + 4 bug môi trường tìm được lúc test (IPv6-only DNS, password có `@`, pgvector ở schema `extensions`, Gemini quota tính theo item/phút) ở `project-memory/FIXED_BUGS.md` #8-#11. Còn thiếu: page-aware chunking, `DELETE /papers/{id}`, `AsyncPostgresSaver` thật (đang tạm `AsyncSqliteSaver`), file_hash dedup, xoá code Phase 1 cũ.
 
 ### Schema
 ```sql
@@ -107,7 +107,7 @@ paper_cards(paper_id FK, summary, embedding vector(768))
 - [x] Dense + sparse chạy song song bằng `asyncio.gather` trong `hybrid_search()`.
 - [ ] `ChildChunk` thêm `page_num`, `char_start`, `char_end`, `level`.
 - [ ] `parser.py` trả `list[dict]` per-page có offset; `split_parent_sections` nhận input page-aware để map heading → trang.
-- [ ] `/upload` → `BackgroundTasks`, trả `202` + `status`, poll qua `GET /papers/{id}/status`. **Ưu tiên cao hơn dự kiến ban đầu** — giờ upload paper >100 chunk mất thêm ≥61s do rate-limit cooldown (bug #11), block request rất lâu.
+- [x] `/upload` → `BackgroundTasks`, trả `202` + `status`, poll qua `GET /papers/{id}/status`. Lỗi trong task nền ghi `papers.status='failed'` (không raise — không còn request để nhận). `repository.list_papers()` đổi lọc `WHERE status='ready'` để dropdown UI không cho chọn paper chưa xong. `streamlit_app.py` cập nhật poll thay vì đọc `num_chunks` ngay trong response upload.
 - [ ] Thêm `DELETE /papers/{id}` (cascade). `repository.delete_paper()` đã có sẵn, chỉ thiếu route.
 - [ ] Singleton connection pool qua FastAPI `lifespan` (hiện `get_pool()` lazy-singleton per-process, đúng nhưng chưa có cleanup lúc shutdown).
 - [ ] Chuyển checkpointer `AsyncSqliteSaver` → `AsyncPostgresSaver` thật (dùng `langgraph-checkpoint-postgres`) — chat history vẫn mất khi Railway redeploy cho đến khi xong bước này.
