@@ -25,10 +25,27 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LIFESPAN — dong connection pool Postgres luc app shutdown
+# get_pool() trong app/storage/repository.py la lazy singleton (tao 1 lan,
+# tai su dung xuyen suot vong doi process) - khong co lifespan thi pool
+# khong bao gio duoc dong tuong minh khi Uvicorn/Railway tat process.
+# ──────────────────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    from app.storage import repository
+
+    await repository.close_pool()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # KHOI TAO FASTAPI APP
@@ -36,6 +53,7 @@ from app.api.routes import router
 
 app = FastAPI(
     title="ArXiv Agentic RAG API",
+    lifespan=lifespan,
     description=(
         "API Backend cho he thong Agentic RAG tren bai bao ArXiv.\n\n"
         "## Tinh nang\n"

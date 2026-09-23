@@ -4,10 +4,12 @@ app/api/routes.py
 Dinh nghia cac endpoint REST API cua ung dung.
 
 Cac endpoint:
-  GET  /health          — Kiem tra server dang song
-  GET  /papers          — Lay danh sach bai bao da duoc index
-  POST /upload          — Upload PDF -> parse -> chunk -> index vao Postgres
-  POST /ask             — Hoi Agent va nhan cau tra loi
+  GET    /health                  — Kiem tra server dang song
+  GET    /papers                  — Lay danh sach bai bao status='ready'
+  POST   /upload                  — Upload PDF, index chay nen (BackgroundTasks), tra 202
+  GET    /papers/{id}/status      — Poll tien do xu ly sau /upload
+  DELETE /papers/{id}             — Xoa paper (cascade sections/chunks/paper_cards)
+  POST   /ask                     — Hoi Agent va nhan cau tra loi
 
 Luong xu ly /upload (Phase 2 - Postgres/Supabase):
   Request tra ve 202 NGAY sau khi luu file + tao row papers(status='processing') -
@@ -186,8 +188,11 @@ async def upload_paper(
             for c in stem.lower()
         ).strip("_")
 
-    # ── Luu file PDF vao thu muc data/ ──
-    pdf_path = settings.data_dir / file.filename
+    # ── Luu file PDF vao thu muc data/, dat ten theo paper_id (KHONG phai
+    # ten file goc) - 2 paper_id khac nhau upload file trung ten se KHONG
+    # con ghi de len nhau tren disk nhu truoc (bug that: da lam mat 1 file
+    # PDF mau that trong luc test tinh nang DELETE, xem project-memory/FIXED_BUGS.md #12) ──
+    pdf_path = settings.data_dir / f"{paper_id}.pdf"
     try:
         with open(pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -245,6 +250,44 @@ async def get_paper_status(paper_id: str) -> PaperStatusResponse:
         status=paper["status"],
         num_chunks=paper["num_chunks"],
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ENDPOINT 3c: XOA 1 PAPER
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.delete(
+    "/papers/{paper_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Xoa 1 paper va toan bo du lieu lien quan",
+    tags=["Papers"],
+)
+async def delete_paper(paper_id: str) -> None:
+    """
+    Xoa 1 paper khoi Postgres - `sections`/`chunks`/`paper_cards` tu dong bi
+    xoa theo qua `ON DELETE CASCADE` (db/schema.sql), khong can xoa tay tung
+    bang. File PDF goc tren disk cung duoc xoa neu con ton tai.
+
+    Neu goi trong luc paper dang o trang thai 'processing' (background task
+    cua /upload chua xong): task nen se tiep tuc chay nhung insert_sections/
+    insert_chunks se that bai vi FK paper_id khong con - _process_and_index_paper()
+    da bat loi nay va goi set_paper_status() (khong lam gi vi row da mat), khong
+    crash task nen.
+    """
+    from app.storage import repository
+
+    paper = await repository.get_paper(paper_id)
+    if paper is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Khong tim thay paper_id='{paper_id}'.",
+        )
+
+    await repository.delete_paper(paper_id)
+
+    pdf_path = settings.data_dir / f"{paper_id}.pdf"
+    if pdf_path.exists():
+        pdf_path.unlink()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

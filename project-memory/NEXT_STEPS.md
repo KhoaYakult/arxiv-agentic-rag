@@ -37,9 +37,13 @@ Chi tiết đầy đủ + schema SQL ở `docs/ROADMAP.md`.
 - [x] `streamlit_app.py`: `upload_pdf()` đổi kỳ vọng `201`→`202`; thêm `poll_paper_status()` (poll 2s/lần, timeout 600s) — nút "Upload & Index" giờ hiện 2 spinner nối tiếp (gửi file → đợi index nền) thay vì 1 spinner chờ response đồng bộ như cũ.
 - [x] Verify thật qua HTTP (uvicorn thật, port 8010): upload PDF 182 chunks → `202` trả về ngay lập tức (không block) → status `processing` → `/papers` list rỗng đúng lúc đang xử lý → sau ~10s status chuyển `ready`, `num_chunks=182` → `/papers` hiện đúng → `/ask` trả lời đúng với 5 sources. Dọn sạch dữ liệu test (`repository.delete_paper`) sau đó.
 
+**`DELETE /papers/{id}` + `lifespan` HOÀN TẤT — verify thật qua HTTP (2026-09-23):**
+- [x] `DELETE /papers/{paper_id}` — CASCADE qua FK có sẵn, xoá thêm file PDF trên đĩa, `204` khi thành công, `404` idempotent khi gọi lại. Verify cả trường hợp xoá lúc paper đang `processing` (background task fail an toàn ở bước insert, không crash).
+- [x] `app/api/main.py` thêm `lifespan` (`asynccontextmanager`) gọi `repository.close_pool()` lúc shutdown.
+- [x] **Bug #12 tìm được + sửa trong lúc verify:** `/upload` lưu PDF theo tên file gốc thay vì `paper_id` → 2 paper trùng tên file ghi đè nhau trên đĩa → đã làm mất file mẫu `data/sample_test_cortexODE.pdf` (không phục hồi được, gitignored). Đã sửa: cả `/upload` và `DELETE` dùng `f"{paper_id}.pdf"`. **`data/` hiện không còn PDF mẫu nào — cần upload 1 PDF thật trước khi test tay.**
+
 **Cố ý CHƯA làm:**
 - [ ] **Xoá hẳn** `app/indexing/vector_store.py`, `app/indexing/bm25_store.py`, `app/indexing/hybrid_retriever.py` — đã KHÔNG còn được routes.py/rag_graph.py dùng nữa (cutover xong), nhưng cố ý giữ lại code cũ thêm 1 nhịp phòng khi cần rollback nhanh. Xoá ở bước sau khi user xác nhận ổn định.
-- [ ] `DELETE /papers/{id}` — hàm `repository.delete_paper()` đã có sẵn (CASCADE qua FK) nhưng **chưa có route HTTP nào gọi tới nó** (đã confirm bằng `curl -X DELETE` → 404 trong lúc dọn data test). Singleton connection pool qua FastAPI `lifespan` (hiện `get_pool()` vẫn lazy-singleton per-process, đã đúng, nhưng chưa có cleanup lúc shutdown qua `lifespan`)
 - [ ] Checkpointer → `AsyncPostgresSaver` thật (đang tạm dùng `AsyncSqliteSaver`, vẫn SQLite - chat history vẫn mất khi Railway redeploy, chưa xong hoàn toàn theo ROADMAP)
 - [ ] `ChildChunk` thêm `page_num`/`char_start`/`char_end`/`level` + `chunker.py` xử lý page-aware (`insert_chunks()` hiện ghi NULL cho các cột này)
 - [ ] File dedup qua `file_hash` (cột đã có trong schema, `get_paper_by_hash()` đã viết trong repository.py, nhưng `/upload` chưa gọi tới)

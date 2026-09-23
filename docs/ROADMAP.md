@@ -78,7 +78,7 @@ pytest fixtures/class-based test grouping · ruff rule selection & per-file-igno
 **Mục tiêu:** dữ liệu sống sót qua redeploy; chunk có page number; parent section **thật sự tồn tại** (hiện `ParentSection` được tạo rồi vứt đi — "parent-child" chỉ có trên tên).
 **CV claim:** *"migrated from ephemeral file-based stores to a single Postgres+pgvector backend; zero data loss on deploy"*
 
-**Trạng thái (2026-09-23):** `/upload`, `/papers`, `/ask` đã cutover hoàn toàn sang Postgres, verify thật qua HTTP với PDF 182 chunks thật. `/upload` giờ chạy nền qua `BackgroundTasks` (trả `202` gần như tức thì, poll `GET /papers/{id}/status`) — verify thật qua HTTP. Chi tiết đầy đủ + 4 bug môi trường tìm được lúc test (IPv6-only DNS, password có `@`, pgvector ở schema `extensions`, Gemini quota tính theo item/phút) ở `project-memory/FIXED_BUGS.md` #8-#11. Còn thiếu: page-aware chunking, `DELETE /papers/{id}`, `AsyncPostgresSaver` thật (đang tạm `AsyncSqliteSaver`), file_hash dedup, xoá code Phase 1 cũ.
+**Trạng thái (2026-09-23):** `/upload`, `/papers`, `/ask` đã cutover hoàn toàn sang Postgres, verify thật qua HTTP với PDF 182 chunks thật. `/upload` chạy nền qua `BackgroundTasks` (trả `202` gần như tức thì, poll `GET /papers/{id}/status`). `DELETE /papers/{id}` + FastAPI `lifespan` (đóng pool lúc shutdown) đã xong. Chi tiết đầy đủ + 5 bug môi trường/thiết kế tìm được lúc test (IPv6-only DNS, password có `@`, pgvector ở schema `extensions`, Gemini quota tính theo item/phút, PDF lưu theo tên gốc gây ghi đè) ở `project-memory/FIXED_BUGS.md` #8-#12. Còn thiếu: page-aware chunking, `AsyncPostgresSaver` thật (đang tạm `AsyncSqliteSaver`), file_hash dedup, xoá code Phase 1 cũ.
 
 ### Schema
 ```sql
@@ -108,8 +108,8 @@ paper_cards(paper_id FK, summary, embedding vector(768))
 - [ ] `ChildChunk` thêm `page_num`, `char_start`, `char_end`, `level`.
 - [ ] `parser.py` trả `list[dict]` per-page có offset; `split_parent_sections` nhận input page-aware để map heading → trang.
 - [x] `/upload` → `BackgroundTasks`, trả `202` + `status`, poll qua `GET /papers/{id}/status`. Lỗi trong task nền ghi `papers.status='failed'` (không raise — không còn request để nhận). `repository.list_papers()` đổi lọc `WHERE status='ready'` để dropdown UI không cho chọn paper chưa xong. `streamlit_app.py` cập nhật poll thay vì đọc `num_chunks` ngay trong response upload.
-- [ ] Thêm `DELETE /papers/{id}` (cascade). `repository.delete_paper()` đã có sẵn, chỉ thiếu route.
-- [ ] Singleton connection pool qua FastAPI `lifespan` (hiện `get_pool()` lazy-singleton per-process, đúng nhưng chưa có cleanup lúc shutdown).
+- [x] Thêm `DELETE /papers/{id}` (cascade qua FK có sẵn trong schema, xoá thêm file PDF trên đĩa).
+- [x] Cleanup connection pool qua FastAPI `lifespan` (`get_pool()` vẫn lazy-singleton per-process như cũ, giờ có đóng tường minh lúc shutdown).
 - [ ] Chuyển checkpointer `AsyncSqliteSaver` → `AsyncPostgresSaver` thật (dùng `langgraph-checkpoint-postgres`) — chat history vẫn mất khi Railway redeploy cho đến khi xong bước này.
 - [ ] File dedup qua `file_hash` — cột + `get_paper_by_hash()` đã có trong `repository.py`, `/upload` chưa gọi tới.
 - [ ] **Xoá hẳn** `app/indexing/vector_store.py`, `bm25_store.py`, `hybrid_retriever.py` — đã là dead code (không còn được `routes.py`/`rag_graph.py` import), cố ý giữ lại vài ngày phòng cần rollback trước khi xoá thật.
