@@ -120,6 +120,28 @@ async def get_paper_by_hash(file_hash: str) -> dict | None:
     return dict(row) if row else None
 
 
+async def clear_stale_file_hash(paper_id: str) -> None:
+    """
+    Go claim file_hash cua 1 paper dang 'processing'/'failed' (KHONG PHAI
+    'ready') - goi truoc khi /upload ghi 1 row moi cung file_hash do, vi
+    `papers.file_hash` la UNIQUE tren TOAN BANG (db/schema.sql), khong scope
+    rieng theo status='ready'. Neu khong go truoc, insert row moi se dam vao
+    asyncpg.exceptions.UniqueViolationError (bug tim thay khi review Task 3
+    dedup: "fresh upload" fallback cho paper cu 'failed' bi crash 500 thay vi
+    thanh cong, xem project-memory/FIXED_BUGS.md).
+
+    Dieu kien `status != 'ready'` trong WHERE la an toan-kep (defense in
+    depth): neu paper vua chuyen sang 'ready' dung luc ham nay chay (race
+    hiem), no se KHONG bi xoa file_hash - dung, vi khi do no dang giu 1 ban
+    index that su, khong phai stale claim.
+    """
+    pool = await get_pool()
+    await pool.execute(
+        "UPDATE papers SET file_hash = NULL WHERE paper_id = $1 AND status != 'ready'",
+        paper_id,
+    )
+
+
 async def get_paper(paper_id: str) -> dict | None:
     pool = await get_pool()
     row = await pool.fetchrow("SELECT * FROM papers WHERE paper_id = $1", paper_id)

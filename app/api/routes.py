@@ -39,6 +39,7 @@ import hashlib
 import uuid
 from pathlib import Path
 
+import asyncpg
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -161,6 +162,21 @@ def _should_reuse_by_hash(existing: dict | None) -> bool:
     return existing is not None and existing["status"] == "ready"
 
 
+def _should_clear_stale_hash(existing: dict | None) -> bool:
+    """
+    True neu tim thay 1 paper cu cung file_hash nhung KHONG the tai su dung
+    (_should_reuse_by_hash tra False phia tren) - tuc paper do dang
+    'processing' hoac da 'failed'. Paper do van dang "giu" claim tren cot
+    `papers.file_hash UNIQUE` (db/schema.sql dat UNIQUE nay cho TOAN BANG,
+    khong scope rieng theo status='ready'), nen phai go claim cu truoc khi
+    ghi row moi cung file_hash o nhanh fresh-upload ben duoi - neu khong
+    upsert_paper() se nem asyncpg.exceptions.UniqueViolationError (bug tim
+    thay khi review Task 3: 'fresh upload' fallback crash 500 thay vi thanh
+    cong, xem project-memory/FIXED_BUGS.md).
+    """
+    return existing is not None and not _should_reuse_by_hash(existing)
+
+
 @router.post(
     "/upload",
     response_model=UploadResponse,
@@ -211,6 +227,13 @@ async def upload_paper(
                     f"tiet kiem quota Gemini free-tier.",
         )
 
+    if _should_clear_stale_hash(existing):
+        # Paper cu cung file_hash dang 'processing'/'failed' - go claim cu
+        # tren cot file_hash truoc khi ghi row moi cung file_hash ben duoi,
+        # neu khong se dam vao UniqueViolationError (schema.sql UNIQUE toan
+        # bang, khong rieng status='ready').
+        await repository.clear_stale_file_hash(existing["paper_id"])
+
     # ── Tao paper_id tu ten file neu khong truyen vao ──
     if not paper_id:
         stem = Path(file.filename).stem  # bo duoi .pdf
@@ -234,13 +257,26 @@ async def upload_paper(
         )
 
     title = Path(file.filename).stem
-    await repository.upsert_paper(
-        paper_id=paper_id,
-        title=title,
-        filename=file.filename,
-        file_hash=file_hash,
-        status="processing",
-    )
+    try:
+        await repository.upsert_paper(
+            paper_id=paper_id,
+            title=title,
+            filename=file.filename,
+            file_hash=file_hash,
+            status="processing",
+        )
+    except asyncpg.exceptions.UniqueViolationError:
+        # Phong ngua da co _should_clear_stale_hash() phia tren, truong hop
+        # nay chi con xay ra do race condition that (2 request dung file_hash
+        # gan nhau). Xoa file PDF vua ghi de khong mo côi tren dia (cung
+        # nguyen tac voi khoi except ben tren cho loi ghi file) - dung de lai
+        # file khong co paper row nao tro toi, dung y het bug #12.
+        pdf_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Loi: file_hash bi trung luc ghi paper moi (rat co the do "
+                    "2 request gan nhau cung upload 1 file). Vui long thu lai.",
+        )
     background_tasks.add_task(_process_and_index_paper, pdf_path, paper_id)
 
     return UploadResponse(
