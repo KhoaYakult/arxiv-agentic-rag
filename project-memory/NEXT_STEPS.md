@@ -56,9 +56,15 @@ Chi tiết đầy đủ + schema SQL ở `docs/ROADMAP.md`.
 - [x] TDD: `tests/test_chunker.py` thêm 11 test (`TestStripPageMarkers`/`TestPageAt`/`TestCreateChildChunksPageAwareness`), viết trước — verify đỏ (`ImportError`) — implement — verify xanh. `pytest tests/` 31/31 pass, `ruff check .` sạch.
 - [x] Verify thật qua HTTP: upload `data/sample_cortexODE.pdf` (`paper_id=task2_probe`) → ready 181 chunks → `/ask` → `sources[].page_num` khác null thật (vd `14` ở section REFERENCES) → dọn sạch bằng `DELETE /papers/task2_probe`.
 
+**File hash dedup trên `/upload` HOÀN TẤT — verify thật qua HTTP (2026-09-27):**
+- [x] `app/api/routes.py::upload_paper()` giờ đọc content, tính `sha256`, gọi `repository.get_paper_by_hash()` (đã có sẵn từ trước) trước khi lưu file/tạo paper mới. Helper thuần mới `_should_reuse_by_hash(existing)`: chỉ reuse khi paper cũ `status='ready'` — match với `'processing'`/`'failed'` KHÔNG short-circuit, xử lý như upload mới (không có gì đáng tin để tái sử dụng từ 1 lần index dở dang/lỗi).
+- [x] Khi reuse: trả `200` (không phải `202`) với thông tin paper CŨ, không parse/embed lại (tiết kiệm quota Gemini free-tier), không ghi file PDF mới lên đĩa, không tạo row `papers` mới.
+- [x] `pdf_path.write_bytes(content)` thay cho `shutil.copyfileobj` cũ (đọc content 1 lần để vừa hash vừa ghi file) — bỏ import `shutil` (không còn dùng ở đâu khác trong file), thêm import `hashlib`/`Response`.
+- [x] TDD: `tests/test_routes.py` (file mới) — 4 test cho `_should_reuse_by_hash`, viết trước, verify đỏ (`ImportError`), implement, verify xanh. `pytest tests/` 35/35 pass, `ruff check .` sạch.
+- [x] Verify thật qua HTTP (uvicorn thật port 8014, Supabase + Gemini thật, không mock): upload `data/sample_cortexODE.pdf` dưới `paper_id=dedup_probe_a` → ready 181 chunks → upload lại CÙNG byte dưới `paper_id=dedup_probe_b` khác → `HTTP 200`, body `paper_id=dedup_probe_a` (bản gốc) → `data/dedup_probe_b.pdf` không tồn tại trên đĩa → `GET /papers/dedup_probe_b/status` → `404` (không có row Postgres nào cho `dedup_probe_b`). Dọn sạch bằng `DELETE /papers/dedup_probe_a` → `204`; sample PDF gốc không bị đụng tới.
+
 **Cố ý CHƯA làm:**
 - [ ] **Xoá hẳn** `app/indexing/vector_store.py`, `app/indexing/bm25_store.py`, `app/indexing/hybrid_retriever.py` — đã KHÔNG còn được routes.py/rag_graph.py dùng nữa (cutover xong), nhưng cố ý giữ lại code cũ thêm 1 nhịp phòng khi cần rollback nhanh. Xoá ở bước sau khi user xác nhận ổn định.
-- [ ] File dedup qua `file_hash` (cột đã có trong schema, `get_paper_by_hash()` đã viết trong repository.py, nhưng `/upload` chưa gọi tới)
 - [ ] `parser.py` trả `list[dict]` per-page có offset thật + `split_parent_sections` nhận input page-aware để map heading → trang (khác việc page-aware chunking vừa xong ở trên — đây là refactor sâu hơn ở tầng parser/section-splitter, chunk hiện lấy `page_num` qua marker string, không qua cấu trúc dữ liệu per-page).
 
 ## Sau Phase 2 (tóm tắt — chi tiết ở `docs/ROADMAP.md`)

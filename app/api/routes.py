@@ -35,7 +35,7 @@ nhu da lam voi Phase 1).
 
 from __future__ import annotations
 
-import shutil
+import hashlib
 import uuid
 from pathlib import Path
 
@@ -45,6 +45,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Response,
     UploadFile,
     status,
 )
@@ -149,6 +150,17 @@ async def _process_and_index_paper(pdf_path: Path, paper_id: str) -> None:
         await repository.set_paper_status(paper_id, status="failed")
 
 
+def _should_reuse_by_hash(existing: dict | None) -> bool:
+    """
+    Quyet dinh co tai su dung paper da index truoc do (cung file_hash) hay
+    khong, thay vi parse+embed lai tu dau (ton quota Gemini free-tier).
+    Chi tai su dung khi paper cu da 'ready' - neu dang 'processing' (hiem,
+    race condition) hoac 'failed' (lan truoc loi giua chung), coi nhu chua
+    co gi dang tin cay de tai su dung, xu ly nhu 1 upload moi binh thuong.
+    """
+    return existing is not None and existing["status"] == "ready"
+
+
 @router.post(
     "/upload",
     response_model=UploadResponse,
@@ -158,6 +170,7 @@ async def _process_and_index_paper(pdf_path: Path, paper_id: str) -> None:
 )
 async def upload_paper(
     background_tasks: BackgroundTasks,
+    response: Response,
     file: UploadFile = File(..., description="File PDF bai bao can upload."),
     paper_id: str | None = Form(
         default=None,
@@ -165,10 +178,13 @@ async def upload_paper(
     ),
 ) -> UploadResponse:
     """
-    Upload 1 file PDF. Luu file + tao paper (status="processing") roi tra ve
-    202 NGAY - parse/embed/index chay nen (co the mat hang chuc giay do
-    Gemini free-tier rate-limit cooldown, xem app/indexing/embeddings.py).
-    Goi GET /papers/{paper_id}/status de biet khi nao xong.
+    Upload 1 file PDF. Neu noi dung file (theo sha256) da duoc index thanh
+    cong truoc do (bat ky paper_id nao), tra ve luon thong tin paper cu, KHONG
+    parse+embed lai (tiet kiem quota Gemini free-tier) - xem _should_reuse_by_hash.
+    Nguoc lai: luu file + tao paper (status="processing") roi tra ve 202 NGAY -
+    parse/embed/index chay nen (co the mat hang chuc giay do Gemini free-tier
+    rate-limit cooldown, xem app/indexing/embeddings.py). Goi
+    GET /papers/{paper_id}/status de biet khi nao xong.
     """
     from app.storage import repository
 
@@ -177,6 +193,22 @@ async def upload_paper(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Chi chap nhan file PDF (.pdf).",
+        )
+
+    content = await file.read()
+    file_hash = hashlib.sha256(content).hexdigest()
+
+    existing = await repository.get_paper_by_hash(file_hash)
+    if _should_reuse_by_hash(existing):
+        response.status_code = status.HTTP_200_OK
+        return UploadResponse(
+            paper_id=existing["paper_id"],
+            title=existing["title"],
+            status="ready",
+            num_chunks=existing["num_chunks"],
+            message=f"File nay da duoc upload va index truoc do "
+                    f"(paper_id='{existing['paper_id']}'). Khong xu ly lai de "
+                    f"tiet kiem quota Gemini free-tier.",
         )
 
     # ── Tao paper_id tu ten file neu khong truyen vao ──
@@ -194,8 +226,7 @@ async def upload_paper(
     # PDF mau that trong luc test tinh nang DELETE, xem project-memory/FIXED_BUGS.md #12) ──
     pdf_path = settings.data_dir / f"{paper_id}.pdf"
     try:
-        with open(pdf_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        pdf_path.write_bytes(content)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -207,6 +238,7 @@ async def upload_paper(
         paper_id=paper_id,
         title=title,
         filename=file.filename,
+        file_hash=file_hash,
         status="processing",
     )
     background_tasks.add_task(_process_and_index_paper, pdf_path, paper_id)
