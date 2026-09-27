@@ -103,7 +103,8 @@ flowchart TD
 | API | `app/api/main.py`, `routes.py`, `schemas.py` | FastAPI app, HTTP contracts |
 | Frontend | `streamlit_app.py` | Chat UI, calls the API over HTTP |
 | Config | `app/config.py` | `pydantic-settings` loaded from `.env`; also redirects `HF_HOME`/`OLLAMA_MODELS` into `cache/` on import |
-| *(dead code)* | `app/indexing/vector_store.py`, `bm25_store.py`, `hybrid_retriever.py` | Phase 1 ChromaDB/BM25 pipeline — not imported anywhere anymore, kept temporarily for rollback |
+
+Phase 1's `app/indexing/vector_store.py`, `bm25_store.py`, and `hybrid_retriever.py` (ChromaDB/BM25 pipeline) are **permanently deleted**, not just unused — the rollback safety net they were kept for turned out not to be needed. See `project-memory/FIXED_BUGS.md` and git history if you need to see the old code.
 
 ## Key data structures
 

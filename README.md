@@ -14,9 +14,9 @@ flowchart TD
     end
 
     subgraph RETRIEVAL ["Hybrid Retrieval"]
-        CHUNKER --> VDB["ChromaDB (Dense)"]
-        CHUNKER --> BM25["BM25 (Sparse)"]
-        VDB & BM25 --> HYBRID["RRF Fusion"]
+        CHUNKER --> VDB["Postgres pgvector (Dense)"]
+        CHUNKER --> FTS["Postgres FTS (Sparse)"]
+        VDB & FTS --> HYBRID["RRF Fusion"]
         HYBRID --> RERANK["Cohere / CrossEncoder Rerank"]
     end
 
@@ -38,7 +38,7 @@ Mid-upgrade from MVP to a production-grade portfolio project. See [`docs/ROADMAP
 
 - **Parsing**: PyMuPDF4LLM (with raw `fitz` fallback)
 - **Chunking**: section-based parent-child (regex heading detection + sliding window)
-- **Retrieval**: ChromaDB (dense) + BM25 (sparse) → Reciprocal Rank Fusion → Cohere Rerank / local CrossEncoder fallback
+- **Retrieval**: Postgres/pgvector (dense) + Postgres full-text search (sparse) → Reciprocal Rank Fusion → Cohere Rerank / local CrossEncoder fallback
 - **Agent**: LangGraph Corrective-RAG (`retrieve → grade → rewrite-if-insufficient → generate`)
 - **LLM**: Groq (primary) with automatic runtime fallback to Gemini
 - **Backend**: FastAPI
@@ -84,7 +84,8 @@ CI (`.github/workflows/ci.yml`) runs both on every push/PR to `main`.
 ## Project layout
 
 - `app/ingestion/` — PDF parsing (`parser.py`) and parent-child chunking (`chunker.py`)
-- `app/indexing/` — vector store (`vector_store.py`), BM25 (`bm25_store.py`), fusion + reranking (`hybrid_retriever.py`, `reranker.py`)
+- `app/indexing/` — embedding provider (`embeddings.py`) and reranking (`reranker.py`)
+- `app/storage/` — Postgres repository layer (`repository.py`): CRUD for papers/sections/chunks + `hybrid_search()` (dense pgvector + sparse Postgres FTS, fused with RRF)
 - `app/agent/` — LangGraph Corrective-RAG agent (`rag_graph.py`)
 - `app/llm/` — LLM provider factory (`llm_factory.py`) and prompt templates (`prompt_templates.py`)
 - `app/api/` — FastAPI app and routes

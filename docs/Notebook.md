@@ -118,7 +118,7 @@ Markdown Document
 
 ## 4. Module Lưu Trữ & Tìm Kiếm — Phase 1 (`app/indexing/vector_store.py`, `bm25_store.py`) — LỊCH SỬ, đã thay bằng Postgres ở mục 4.4
 
-> Mục 4.1–4.3 mô tả thiết kế Phase 1 (ChromaDB + BM25). Hai file này **không còn được dùng** kể từ Phase 2 (2026-09-20) nhưng vẫn còn tồn tại trên đĩa (dead code, giữ tạm để rollback). Đọc để hiểu **vì sao ban đầu chọn thiết kế đó** và **vì sao sau này thay đổi** — bản thân lý do thay đổi cũng là kiến thức đáng học.
+> Mục 4.1–4.3 mô tả thiết kế Phase 1 (ChromaDB + BM25). Hai file này **không còn được dùng** kể từ Phase 2 (2026-09-20) và đã bị xoá hẳn khỏi repo (2026-09-27, xem `project-memory/FIXED_BUGS.md`). Đọc để hiểu **vì sao ban đầu chọn thiết kế đó** và **vì sao sau này thay đổi** — bản thân lý do thay đổi cũng là kiến thức đáng học.
 
 ### 4.1. Bản chất bài toán
 - **Giới hạn của Lexical Search (Tìm kiếm từ khóa thuần túy):** Khi người dùng đặt câu hỏi bằng ngôn ngữ tự nhiên, từ vựng sử dụng thường không trùng khớp 100% với từ ngữ trong tài liệu khoa học (ví dụ: *"mô hình xử lý ảnh"* vs *"Visual feature extraction using Convolutional layers"*). Kỹ thuật tìm kiếm chuỗi truyền thống sẽ bỏ sót các tài liệu mang tính đồng nghĩa hoặc tương đương ngữ cảnh.
