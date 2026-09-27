@@ -146,8 +146,8 @@ flowchart TD
     end
 
     subgraph ING ["Ingestion (POST /upload) - app/api/routes.py"]
-        PDF2["PDF"] --> PARSE2["parser.py<br/>❌ CHƯA page-aware - page_num luôn NULL"]
-        PARSE2 --> CHUNK2["chunker.py (không đổi từ Phase 1)"]
+        PDF2["PDF"] --> PARSE2["parser.py<br/>chèn marker &lt;!-- page:N --&gt; (không đổi từ Phase 1)"]
+        PARSE2 --> CHUNK2["chunker.py<br/>✅ page-aware (2026-09-27) - gỡ marker, tính page_num/char_start/char_end xuyên section"]
         CHUNK2 --> EMB2["embeddings.GeminiEmbeddingProvider<br/>batch <=100, tự cho 61s/batch (quota free-tier - bug #11)"]
         EMB2 --> INS1["repository.upsert_paper()"]
         INS1 --> INS2["repository.insert_sections()<br/>1 transaction rieng"]
@@ -169,7 +169,7 @@ flowchart TD
 
         RRF2 --> RERANK2["reranker.RerankerManager<br/>Cohere / local CrossEncoder - KHONG DOI tu Phase 1, Jina chua lam"]
         RERANK2 --> AGENT2["LangGraph Agent (CRAG) - retrieve/grade/rewrite/generate deu async"]
-        AGENT2 <--> CHECKPOINT["AsyncSqliteSaver (data/chat_memory.db)<br/>❌ CHƯA phải AsyncPostgresSaver - van la SQLite, chi doi sync sang async"]
+        AGENT2 <--> CHECKPOINT["AsyncPostgresSaver (cùng Postgres DB)<br/>✅ psycopg_pool.AsyncConnectionPool(min=1,max=1), tự kết nối lại + asyncio.Lock cho lazy build (2026-09-27)"]
     end
 ```
 
