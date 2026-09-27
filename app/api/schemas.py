@@ -114,7 +114,7 @@ class PaperInfo(BaseModel):
 
     paper_id: str = Field(description="ID duy nhat cua bai bao.")
     title: str = Field(description="Ten bai bao (lay tu ten file PDF).")
-    num_chunks: int = Field(description="So luong chunks trong ChromaDB.")
+    num_chunks: int = Field(description="So luong chunks da duoc index.")
 
 
 class PapersResponse(BaseModel):

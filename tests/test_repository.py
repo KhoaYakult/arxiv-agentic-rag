@@ -1,10 +1,10 @@
 """
-Test ham reciprocal_rank_fusion() trong app/indexing/hybrid_retriever.py.
-Ham nay thuan (khong goi ChromaDB/BM25/network) nen test truc tiep voi
-danh sach dict gia lap ket qua tu dense/sparse retriever.
+Test ham reciprocal_rank_fusion() trong app/storage/repository.py.
+Ham nay thuan (khong goi Postgres/network) nen test truc tiep voi danh sach
+dict gia lap ket qua tu dense_search()/sparse_search().
 """
 
-from app.indexing.hybrid_retriever import reciprocal_rank_fusion
+from app.storage.repository import reciprocal_rank_fusion
 
 
 def _dense(chunk_id: str, rank: int) -> dict:
@@ -22,7 +22,6 @@ class TestReciprocalRankFusion:
         result = reciprocal_rank_fusion(dense, bm25, k=60)
 
         ids_in_order = [r["chunk_id"] for r in result]
-        # "a" xuat hien ca 2 danh sach -> RRF score cao nhat -> dung dau
         assert ids_in_order[0] == "a"
 
     def test_rrf_score_matches_formula(self):

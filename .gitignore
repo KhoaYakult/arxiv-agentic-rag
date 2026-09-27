@@ -29,13 +29,9 @@ cache/
 skills-lock.json
 
 # Dữ liệu cache và DB local
-data/chroma_db/
 data/chunks_cache/
-data/bm25_index/
-data/papers_registry.json
 data/*.pdf
 data/*.json
-data/*.pkl
 
 # IDE & Editor files
 .vscode/

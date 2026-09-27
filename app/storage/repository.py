@@ -1,15 +1,11 @@
 """
 app/storage/repository.py
 ===========================
-Postgres (Supabase) repository layer - Phase 2.
-
-Thay the 3 thu rai rac cua Phase 1:
-  - data/papers_registry.json (_load_registry/_save_registry trong routes.py)
-  - app/indexing/vector_store.py (VectorStoreManager, ChromaDB)
-  - app/indexing/bm25_store.py (BM25StoreManager, pickle)
-
-CHUA duoc wire vao routes.py - vector_store.py/bm25_store.py van la pipeline
-dang chay that, da verify end-to-end (xem project-memory/STATE.md).
+Postgres (Supabase) repository layer - nguon su that duy nhat cho papers/
+sections/chunks, thay the 3 thu rai rac cua Phase 1 (data/papers_registry.json,
+ChromaDB qua app/indexing/vector_store.py, BM25 pickle qua
+app/indexing/bm25_store.py - ca 3 file/co che nay da bi xoa, xem
+project-memory/FIXED_BUGS.md va git history neu can xem lai).
 
 Truoc khi dung module nay: chay db/schema.sql qua Supabase SQL Editor.
 """
@@ -255,14 +251,65 @@ async def insert_chunks(
 # ─────────────────────────────────────────────────────────────────────────────
 # HYBRID SEARCH - dense (pgvector) + sparse (Postgres FTS) + RRF
 #
-# Tai su dung reciprocal_rank_fusion() da test trong Phase 1
-# (app/indexing/hybrid_retriever.py) thay vi viet lai - ham do khong quan tam
-# nguon goc ranking (BM25 hay Postgres FTS), chi can dict co key
-# {chunk_id, dense_rank} hoac {chunk_id, bm25_rank}. Giu nguyen ten key
-# "bm25_rank" du gio la Postgres FTS (khong phai BM25 that) de tai su dung
-# ham fusion khong sua doi - fusion la thuat toan generic tren 2 danh sach
-# rank, khong phu thuoc cach tinh diem cu the.
+# reciprocal_rank_fusion() song o day (chuyen tu app/indexing/hybrid_retriever.py,
+# file da bi xoa cung Phase 1 - xem project-memory/FIXED_BUGS.md) vi day la noi
+# duy nhat con goi no. Ham khong quan tam nguon goc ranking (BM25 hay Postgres
+# FTS), chi can dict co key {chunk_id, dense_rank} hoac {chunk_id, bm25_rank}.
+# Giu nguyen ten key "bm25_rank" du gio la Postgres FTS (khong phai BM25 that) -
+# fusion la thuat toan generic tren 2 danh sach rank, khong phu thuoc cach tinh
+# diem cu the.
 # ─────────────────────────────────────────────────────────────────────────────
+
+def reciprocal_rank_fusion(
+    dense_results: list[dict],
+    bm25_results: list[dict],
+    k: int = 60,
+) -> list[dict]:
+    """
+    Reciprocal Rank Fusion (RRF): Gop 2 danh sach xep hang tu Dense va BM25
+    thanh 1 danh sach thong nhat bang cong thuc:
+
+        RRF_score(doc) = sum over each list: 1 / (k + rank_in_that_list)
+
+    k = 60 la gia tri mac dinh tu bai bao goc cua RRF (Cormack et al., 2009).
+    Gia tri nay giam thieu anh huong cua nhung vi tri hang dau qua cao.
+
+    Args:
+        dense_results: Ket qua tu Dense Vector Search (co key 'chunk_id', 'dense_rank').
+        bm25_results:  Ket qua tu BM25 Search (co key 'chunk_id', 'bm25_rank').
+        k: Hang so lam mo RRF (mac dinh 60).
+
+    Returns:
+        list[dict]: Danh sach da duoc gop va sap xep theo RRF score giam dan,
+                    moi item co them 'rrf_score' va 'rrf_rank'.
+    """
+    rrf_scores: dict[str, float] = {}
+    chunk_data: dict[str, dict] = {}
+
+    for item in dense_results:
+        cid = item["chunk_id"]
+        rank = item["dense_rank"]
+        rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (k + rank)
+        chunk_data[cid] = item.copy()
+
+    for item in bm25_results:
+        cid = item["chunk_id"]
+        rank = item["bm25_rank"]
+        rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (k + rank)
+        if cid not in chunk_data:
+            chunk_data[cid] = item.copy()
+
+    sorted_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)
+
+    results = []
+    for rank, cid in enumerate(sorted_ids, 1):
+        item = chunk_data[cid]
+        item["rrf_score"] = round(rrf_scores[cid], 6)
+        item["rrf_rank"] = rank
+        results.append(item)
+
+    return results
+
 
 _DENSE_SEARCH_SQL = """
     SELECT c.chunk_id, c.paper_id, c.text, c.is_table, c.page_num,
@@ -310,8 +357,6 @@ async def hybrid_search(
     top_k ung vien da fuse - chua rerank (buoc rerank van la
     app/indexing/reranker.py, khong doi, khong quan tam data tu dau ra).
     """
-    from app.indexing.hybrid_retriever import reciprocal_rank_fusion
-
     dense_results, sparse_results = await asyncio.gather(
         dense_search(paper_id, query_embedding, top_k),
         sparse_search(paper_id, query_text, top_k),

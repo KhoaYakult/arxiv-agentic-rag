@@ -1,16 +1,12 @@
 """
 app/indexing/embeddings.py
 ============================
-Embedding provider cho Phase 2 (Postgres + pgvector).
+Embedding provider dang dung that trong pipeline (Postgres + pgvector).
 
-Phase 1 dung HuggingFaceAPIEmbeddings (vector_store.py, HF Inference API,
-all-MiniLM-L6-v2, 384-dim, khong phan biet query/document). Phase 2 chuyen
-sang Gemini gemini-embedding-001 (768-dim qua MRL truncation) - xem
-docs/ROADMAP.md muc 1 de biet ly do chon.
-
-CHUA duoc wire vao routes.py/hybrid_retriever.py - vector_store.py van la
-pipeline dang chay that, da verify end-to-end (xem project-memory/STATE.md).
-File nay se duoc dung khi cutover sang app/storage/repository.py.
+Phase 1 dung HuggingFaceAPIEmbeddings (all-MiniLM-L6-v2, 384-dim, khong
+phan biet query/document) - da bi xoa cung ChromaDB (xem
+project-memory/FIXED_BUGS.md). Gemini gemini-embedding-001 (768-dim qua MRL
+truncation) thay the hoan toan - xem docs/ROADMAP.md muc 1 de biet ly do chon.
 """
 
 import sys

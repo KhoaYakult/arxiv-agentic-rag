@@ -27,10 +27,9 @@ Luong xu ly /upload (Phase 2 - Postgres/Supabase):
 Luong xu ly /ask:
   AskRequest -> rag_graph.ask() -> AskResponse
 
-Phase 1 (ChromaDB + BM25 pickle) da bi thay the hoan toan o day - xem
-project-memory/STATE.md truoc khi xoa app/indexing/vector_store.py va
-bm25_store.py (chi xoa sau khi cutover nay da test lai end-to-end that
-nhu da lam voi Phase 1).
+Phase 1 (ChromaDB + BM25 pickle, app/indexing/vector_store.py + bm25_store.py)
+da bi thay the hoan toan o day va sau do xoa het khoi repo (xem
+project-memory/FIXED_BUGS.md va git history neu can xem lai code cu).
 """
 
 from __future__ import annotations

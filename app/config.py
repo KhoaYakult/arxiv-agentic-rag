@@ -29,11 +29,8 @@ class Settings(BaseSettings):
     # ── ĐƯỜNG DẪN ──
     base_dir: Path = BASE_DIR                          # Thư mục gốc dự án
     data_dir: Path = BASE_DIR / "data"                 # Thư mục lưu file bài báo PDF
-    db_dir: Path = BASE_DIR / "data" / "chroma_db"    # Thư mục chứa cơ sở dữ liệu Vector
 
     # ── CẤU HÌNH EMBEDDING & LLM ──
-    embedding_model_name: str = "all-MiniLM-L6-v2"
-    ollama_embedding_model: str = "nomic-embed-text"
     ollama_llm_model: str = "qwen2.5:1.5b"
     groq_model_name: str = "llama3-70b-8192"
 
@@ -68,9 +65,8 @@ settings = Settings()
 if settings.hf_token:
     os.environ["HF_TOKEN"] = settings.hf_token
 
-# Tự động tạo các thư mục dữ liệu trên ổ D 
+# Tự động tạo các thư mục dữ liệu trên ổ D
 settings.data_dir.mkdir(parents=True, exist_ok=True)
-settings.db_dir.mkdir(parents=True, exist_ok=True)
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -78,7 +74,6 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"  - Base Dir    : {settings.base_dir}")
     print(f"  - Data Dir    : {settings.data_dir}")
-    print(f"  - Chroma DB   : {settings.db_dir}")
     print(f"  - HF Cache    : {os.environ.get('HF_HOME')}")
     print(f"  - Ollama Cache: {os.environ.get('OLLAMA_MODELS')}")
     print(f"  - HF Token    : {'Da cai dat' if settings.hf_token else 'Chua cai dat'}")

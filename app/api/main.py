@@ -64,10 +64,10 @@ app = FastAPI(
         "- **Xem** danh sach bai bao da duoc index\n\n"
         "## Cong nghe\n"
         "- LangGraph (Corrective RAG Agent)\n"
-        "- ChromaDB + BM25 (Hybrid Retrieval)\n"
+        "- Postgres/pgvector + Postgres FTS (Hybrid Retrieval)\n"
         "- Cohere Rerank API\n"
         "- Groq Cloud LLM (tu dong chon model)\n"
-        "- HuggingFace Inference API (Embeddings)\n"
+        "- Gemini Embedding API (Embeddings)\n"
     ),
     version="1.0.0",
     docs_url="/docs",
