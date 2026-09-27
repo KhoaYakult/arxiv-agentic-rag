@@ -40,6 +40,16 @@ class ChildChunk:
     paper_id: str
     text: str
     is_table: bool = False
+    page_num: int | None = None    # Trang PDF chua ky tu dau tien cua chunk. None
+                                    # neu parser khong chen duoc marker trang (vd
+                                    # fallback fitz thuan trong app/ingestion/parser.py).
+    char_start: int | None = None  # Vi tri bat dau cua chunk trong text cua
+                                    # ParentSection (SAU KHI da bo marker trang) -
+                                    # dung cho small-to-big expansion sau nay.
+    char_end: int | None = None    # Vi tri ket thuc, cung he toa do voi char_start.
+    level: int = 0                 # 0 = chunk thuong; >0 danh cho RAPTOR summary
+                                    # node (Phase 5) - chua tinh o day, chi khai bao
+                                    # truoc cho khop cot `level` da co san trong schema.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -54,6 +64,51 @@ _TABLE_SEP_PATTERN = re.compile(r"^\|[\s\-\|:]+\|[\s]*$", re.MULTILINE)
 def _is_table_chunk(text: str) -> bool:
     """Trả về True nếu đoạn văn bản chứa Markdown table."""
     return bool(_TABLE_PATTERN.search(text)) and bool(_TABLE_SEP_PATTERN.search(text))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HELPER: trích xuất + gỡ bỏ marker số trang do parser.py chèn vào
+# ──────────────────────────────────────────────────────────────────────────────
+
+_PAGE_MARKER = re.compile(r"<!-- page:(\d+) -->\n?")
+
+
+def _strip_page_markers(text: str) -> tuple[str, list[tuple[int, int]]]:
+    """
+    Gỡ bỏ marker "<!-- page:N -->" (do parser.py chèn vào) khỏi `text`, trả về
+    bản text đã làm sạch cùng danh sách (offset, page_num) đánh dấu vị trí BẮT
+    ĐẦU của từng trang trong bản text đã làm sạch đó - dùng để tra cứu page_num
+    cho từng ChildChunk theo vị trí ký tự bắt đầu của nó (xem _page_at).
+
+    Nếu `text` không có marker nào (vd fallback fitz thuần trong parser.py
+    không chèn marker), trả về nguyên text và danh sách breakpoints rỗng.
+    """
+    breakpoints: list[tuple[int, int]] = []
+    cleaned_parts: list[str] = []
+    cleaned_len = 0
+    last_end = 0
+    for m in _PAGE_MARKER.finditer(text):
+        cleaned_parts.append(text[last_end:m.start()])
+        cleaned_len += m.start() - last_end
+        breakpoints.append((cleaned_len, int(m.group(1))))
+        last_end = m.end()
+    cleaned_parts.append(text[last_end:])
+    return "".join(cleaned_parts), breakpoints
+
+
+def _page_at(breakpoints: list[tuple[int, int]], offset: int) -> int | None:
+    """
+    Trả về page_num đang hiệu lực tại vị trí `offset` trong text đã làm sạch
+    (theo breakpoints từ _strip_page_markers). None nếu breakpoints rỗng hoặc
+    `offset` nằm trước marker đầu tiên.
+    """
+    page = None
+    for bp_offset, bp_page in breakpoints:
+        if bp_offset <= offset:
+            page = bp_page
+        else:
+            break
+    return page
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -186,12 +241,16 @@ def create_child_chunks(
     """
     Cắt từng ParentSection thành các ChildChunk nhỏ bằng kỹ thuật cửa sổ trượt
     (Sliding Window) có overlap, cắt tại ranh giới câu/đoạn thay vì giữa chừng từ.
+
+    Trước khi cắt, gỡ bỏ marker "<!-- page:N -->" (chèn bởi parser.py) khỏi
+    text của section - marker chỉ là dữ liệu nội bộ để xác định page_num, không
+    phải nội dung thật, không được để lọt vào text cuối cùng đem đi embed/generate.
     """
     child_chunks: list[ChildChunk] = []
     global_chunk_idx = 0
 
     for sec in sections:
-        text = sec.text
+        text, breakpoints = _strip_page_markers(sec.text)
         if not text:
             continue
 
@@ -204,6 +263,9 @@ def create_child_chunks(
                 paper_id=paper_id,
                 text=text,
                 is_table=_is_table_chunk(text),
+                page_num=_page_at(breakpoints, 0),
+                char_start=0,
+                char_end=len(text),
             ))
             global_chunk_idx += 1
             continue
@@ -217,9 +279,13 @@ def create_child_chunks(
             if end <= start:
                 end = start + max_chars
 
-            chunk_str = text[start:end].strip()
+            raw = text[start:end]
+            lstripped = raw.lstrip()
+            leading_ws = len(raw) - len(lstripped)
+            chunk_str = lstripped.rstrip()
 
             if chunk_str:
+                chunk_start = start + leading_ws
                 child_chunks.append(ChildChunk(
                     chunk_id=f"{paper_id}_chk_{global_chunk_idx}",
                     parent_section_id=sec.section_id,
@@ -227,6 +293,9 @@ def create_child_chunks(
                     paper_id=paper_id,
                     text=chunk_str,
                     is_table=_is_table_chunk(chunk_str),
+                    page_num=_page_at(breakpoints, chunk_start),
+                    char_start=chunk_start,
+                    char_end=chunk_start + len(chunk_str),
                 ))
                 global_chunk_idx += 1
 

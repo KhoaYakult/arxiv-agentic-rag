@@ -347,6 +347,7 @@ async def ask_agent(body: AskRequest) -> AskResponse:
             chunk_id=chunk.get("chunk_id", "unknown"),
             section=chunk.get("parent_section_name", "Unknown section"),
             content_preview=chunk.get("text", "")[:150],
+            page_num=chunk.get("page_num"),
         )
         for chunk in raw_chunks
     ]

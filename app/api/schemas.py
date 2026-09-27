@@ -82,6 +82,10 @@ class SourceChunk(BaseModel):
     chunk_id: str = Field(description="ID duy nhat cua chunk.")
     section: str = Field(description="Ten section trong bai bao.")
     content_preview: str = Field(description="100 ky tu dau cua noi dung chunk.")
+    page_num: int | None = Field(
+        default=None,
+        description="Trang PDF chua chunk nay. None neu parser khong xac dinh duoc trang.",
+    )
 
 
 class AskResponse(BaseModel):

@@ -49,10 +49,17 @@ Chi tiết đầy đủ + schema SQL ở `docs/ROADMAP.md`.
 - [x] Verify thật: `python app/agent/rag_graph.py` in đúng `[INFO] Checkpointer: AsyncPostgresSaver (Postgres)` (không phải `[WARN]`/SQLite), Turn 2 `Messages: 4`. Verify riêng khả năng **sống sót qua process restart** (mô phỏng Railway redeploy) — chạy `ask()` với cùng `thread_id='plan_task1_probe'` ở 2 lệnh `python -c "..."` riêng biệt (2 process khác nhau hoàn toàn, không có object Python nào sống sót giữa 2 lần chạy): lần 1 in `messages so far: 2`, lần 2 in `messages so far: 4` — chứng minh lịch sử chat thật sự nằm trong Postgres, không phải trong bộ nhớ process. Đã dọn sạch 3 bảng `checkpoints`/`checkpoint_writes`/`checkpoint_blobs` cho `thread_id` test sau khi verify xong.
 - [x] `ruff check .` sạch, `pytest tests/` 20/20 pass (task này không thêm pytest mới — hành vi live-infra, verify bằng chạy thật theo đúng convention `STATE.md`).
 
+**Page-aware chunking HOÀN TẤT — verify thật qua HTTP (2026-09-27):**
+- [x] `app/ingestion/chunker.py`: `ChildChunk` thêm `page_num`/`char_start`/`char_end`/`level`; `create_child_chunks()` gỡ marker `<!-- page:N -->` qua `_strip_page_markers()`/`_page_at()` (2 helper thuần mới, có test) trước khi cắt, tính `page_num`/offset theo text đã làm sạch.
+- [x] `app/storage/repository.py`: `insert_chunks()` ghi 4 cột mới thay vì NULL; `_DENSE_SEARCH_SQL`/`_SPARSE_SEARCH_SQL` SELECT thêm `c.page_num`.
+- [x] `app/api/schemas.py::SourceChunk` + `app/api/routes.py::ask_agent()`: `page_num` xuất hiện trong response `/ask`.
+- [x] TDD: `tests/test_chunker.py` thêm 11 test (`TestStripPageMarkers`/`TestPageAt`/`TestCreateChildChunksPageAwareness`), viết trước — verify đỏ (`ImportError`) — implement — verify xanh. `pytest tests/` 31/31 pass, `ruff check .` sạch.
+- [x] Verify thật qua HTTP: upload `data/sample_cortexODE.pdf` (`paper_id=task2_probe`) → ready 181 chunks → `/ask` → `sources[].page_num` khác null thật (vd `14` ở section REFERENCES) → dọn sạch bằng `DELETE /papers/task2_probe`.
+
 **Cố ý CHƯA làm:**
 - [ ] **Xoá hẳn** `app/indexing/vector_store.py`, `app/indexing/bm25_store.py`, `app/indexing/hybrid_retriever.py` — đã KHÔNG còn được routes.py/rag_graph.py dùng nữa (cutover xong), nhưng cố ý giữ lại code cũ thêm 1 nhịp phòng khi cần rollback nhanh. Xoá ở bước sau khi user xác nhận ổn định.
-- [ ] `ChildChunk` thêm `page_num`/`char_start`/`char_end`/`level` + `chunker.py` xử lý page-aware (`insert_chunks()` hiện ghi NULL cho các cột này)
 - [ ] File dedup qua `file_hash` (cột đã có trong schema, `get_paper_by_hash()` đã viết trong repository.py, nhưng `/upload` chưa gọi tới)
+- [ ] `parser.py` trả `list[dict]` per-page có offset thật + `split_parent_sections` nhận input page-aware để map heading → trang (khác việc page-aware chunking vừa xong ở trên — đây là refactor sâu hơn ở tầng parser/section-splitter, chunk hiện lấy `page_num` qua marker string, không qua cấu trúc dữ liệu per-page).
 
 ## Sau Phase 2 (tóm tắt — chi tiết ở `docs/ROADMAP.md`)
 

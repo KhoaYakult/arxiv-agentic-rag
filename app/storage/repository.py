@@ -193,9 +193,10 @@ async def insert_chunks(
     BM25 pickle rieng) - gop lam 1 de khong con nguy co lech du lieu giua
     dense va sparse index (bug #6 cua Phase 1).
 
-    ChildChunk hien tai (Phase 1) CHUA co page_num/char_start/char_end - cac
-    cot nay se NULL cho den khi chunker.py duoc nang cap de page-aware (viec
-    rieng, xem project-memory/NEXT_STEPS.md truoc khi gia dinh da co du lieu).
+    ChildChunk gio da co page_num/char_start/char_end/level (chunker.py da
+    page-aware, xem app/ingestion/chunker.py::create_child_chunks) - cac cot
+    nay chi con NULL neu parser.py roi vao nhanh fallback fitz thuan (khong
+    chen duoc marker trang).
     """
     if not chunks:
         return
@@ -210,14 +211,22 @@ async def insert_chunks(
             section_pk = section_pk_map.get(chunk.parent_section_id)
             await conn.execute(
                 """
-                INSERT INTO chunks (chunk_id, paper_id, section_pk, text, is_table, embedding)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO chunks (
+                    chunk_id, paper_id, section_pk, text, is_table, embedding,
+                    page_num, char_start, char_end, level
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (chunk_id) DO UPDATE SET
                     text = EXCLUDED.text,
                     is_table = EXCLUDED.is_table,
-                    embedding = EXCLUDED.embedding
+                    embedding = EXCLUDED.embedding,
+                    page_num = EXCLUDED.page_num,
+                    char_start = EXCLUDED.char_start,
+                    char_end = EXCLUDED.char_end,
+                    level = EXCLUDED.level
                 """,
                 chunk.chunk_id, paper_id, section_pk, chunk.text, chunk.is_table, embedding,
+                chunk.page_num, chunk.char_start, chunk.char_end, chunk.level,
             )
 
 
@@ -234,7 +243,7 @@ async def insert_chunks(
 # ─────────────────────────────────────────────────────────────────────────────
 
 _DENSE_SEARCH_SQL = """
-    SELECT c.chunk_id, c.paper_id, c.text, c.is_table,
+    SELECT c.chunk_id, c.paper_id, c.text, c.is_table, c.page_num,
            COALESCE(s.name, 'Unknown section') AS parent_section_name
     FROM chunks c
     LEFT JOIN sections s ON s.id = c.section_pk
@@ -244,7 +253,7 @@ _DENSE_SEARCH_SQL = """
 """
 
 _SPARSE_SEARCH_SQL = """
-    SELECT c.chunk_id, c.paper_id, c.text, c.is_table,
+    SELECT c.chunk_id, c.paper_id, c.text, c.is_table, c.page_num,
            COALESCE(s.name, 'Unknown section') AS parent_section_name
     FROM chunks c
     LEFT JOIN sections s ON s.id = c.section_pk

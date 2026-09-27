@@ -2,7 +2,15 @@
 Test cac ham thuan (khong goi network/API) trong app/ingestion/chunker.py.
 """
 
-from app.ingestion.chunker import _find_split_point, split_parent_sections
+from app.ingestion.chunker import (
+    ChildChunk,
+    ParentSection,
+    _find_split_point,
+    _page_at,
+    _strip_page_markers,
+    create_child_chunks,
+    split_parent_sections,
+)
 
 
 class TestFindSplitPoint:
@@ -86,3 +94,82 @@ class TestSplitParentSections:
         sections = split_parent_sections(text)
         assert sections[0].section_name == "Header"
         assert sections[1].section_name == "Abstract"
+
+
+class TestStripPageMarkers:
+    def test_no_markers_returns_text_unchanged_and_empty_breakpoints(self):
+        text = "plain text without markers"
+        cleaned, breakpoints = _strip_page_markers(text)
+        assert cleaned == text
+        assert breakpoints == []
+
+    def test_single_marker_is_removed_and_recorded(self):
+        text = "<!-- page:3 -->\nHello world"
+        cleaned, breakpoints = _strip_page_markers(text)
+        assert cleaned == "Hello world"
+        assert breakpoints == [(0, 3)]
+
+    def test_multiple_markers_recorded_at_correct_offsets(self):
+        text = "<!-- page:1 -->\nAAAA<!-- page:2 -->\nBBBB"
+        cleaned, breakpoints = _strip_page_markers(text)
+        assert cleaned == "AAAABBBB"
+        assert breakpoints == [(0, 1), (4, 2)]
+
+
+class TestPageAt:
+    def test_empty_breakpoints_returns_none(self):
+        assert _page_at([], 10) is None
+
+    def test_offset_before_first_breakpoint_returns_none(self):
+        assert _page_at([(5, 2)], 0) is None
+
+    def test_offset_at_breakpoint_returns_that_page(self):
+        assert _page_at([(0, 1), (10, 2)], 10) == 2
+
+    def test_offset_between_breakpoints_returns_earlier_page(self):
+        assert _page_at([(0, 1), (10, 2)], 7) == 1
+
+
+class TestCreateChildChunksPageAwareness:
+    def test_short_section_gets_page_num_and_full_span_offsets(self):
+        sections = [ParentSection(
+            section_id="sec_0",
+            section_name="Abstract",
+            text="<!-- page:1 -->\nThis is a short abstract section.",
+        )]
+        chunks = create_child_chunks(sections, paper_id="p1", max_chars=800, overlap_chars=150)
+        assert len(chunks) == 1
+        assert isinstance(chunks[0], ChildChunk)
+        assert chunks[0].page_num == 1
+        assert chunks[0].char_start == 0
+        assert chunks[0].char_end == len(chunks[0].text)
+        assert "<!-- page:" not in chunks[0].text
+
+    def test_section_spanning_two_pages_assigns_different_page_nums(self):
+        text = (
+            "<!-- page:1 -->\n" + ("A" * 40 + " ") * 5 +
+            "<!-- page:2 -->\n" + ("B" * 40 + " ") * 30
+        )
+        sections = [ParentSection(section_id="sec_0", section_name="Method", text=text)]
+        chunks = create_child_chunks(sections, paper_id="p1", max_chars=200, overlap_chars=20)
+        pages = {c.page_num for c in chunks}
+        assert pages == {1, 2}
+        assert chunks[0].page_num == 1
+        assert chunks[-1].page_num == 2
+
+    def test_no_page_markers_leaves_page_num_none(self):
+        sections = [ParentSection(
+            section_id="sec_0",
+            section_name="NoMarkers",
+            text="Plain text with no page markers at all, long enough to survive filters.",
+        )]
+        chunks = create_child_chunks(sections, paper_id="p1", max_chars=800, overlap_chars=150)
+        assert all(c.page_num is None for c in chunks)
+
+    def test_char_offsets_span_exactly_the_chunk_text_length(self):
+        text = "A" * 50 + " " + "B" * 400  # forces the sliding-window branch
+        sections = [ParentSection(section_id="sec_0", section_name="Long", text=text)]
+        chunks = create_child_chunks(sections, paper_id="p1", max_chars=100, overlap_chars=10)
+        assert len(chunks) > 1
+        for c in chunks:
+            assert c.char_end - c.char_start == len(c.text)
