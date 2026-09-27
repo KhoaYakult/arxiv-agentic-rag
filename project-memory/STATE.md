@@ -6,7 +6,7 @@
 
 **Phase 1 hoàn thành. Phase 2 cutover xong + backlog 4-task (`docs/superpowers/plans/2026-09-23-phase2-backlog-completion.md`) đã đóng, kể cả final-fix wave sau review toàn nhánh.** Xem mục "⚠️ Phase 2 CHƯA đóng 100%" bên dưới — 1 việc nhỏ còn mở (parser.py per-page offset refactor thật), không phải scaffold nữa.
 
-- `main` đã sync với `origin` (user tự push từ máy họ — sandbox này không push được, không có credential GitHub, xem lại lịch sử chat nếu cần lý do).
+- `main` đã sync với `origin` (đã tự `git push` thành công từ sandbox này lúc đóng backlog Phase 2, 2026-09-27 — ghi chú cũ nói sandbox không có credential GitHub để push đã lỗi thời, credential giờ có sẵn).
 - Working tree: kiểm tra lại bằng `git status`, đừng tin memory này nếu đã lâu.
 - `make test` (36 test, tính tới final-fix wave 2026-09-27) xanh, `ruff check .` sạch — verify trong CI lẫn local, nhiều lần.
 
