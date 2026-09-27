@@ -1,10 +1,10 @@
 # State
 
-> Cập nhật: 2026-09-23
+> Cập nhật: 2026-09-27
 
 ## Đang ở đâu
 
-**Phase 1 hoàn thành + đã push lên `origin/main`.** Đang bắt đầu Phase 2, giai đoạn scaffold (viết code chưa test được với DB thật).
+**Phase 1 hoàn thành. Phase 2 cutover xong + backlog 4-task (`docs/superpowers/plans/2026-09-23-phase2-backlog-completion.md`) đã đóng, kể cả final-fix wave sau review toàn nhánh.** Xem mục "⚠️ Phase 2 CHƯA đóng 100%" bên dưới — 1 việc nhỏ còn mở (parser.py per-page offset refactor thật), không phải scaffold nữa.
 
 - `main` đã sync với `origin` (user tự push từ máy họ — sandbox này không push được, không có credential GitHub, xem lại lịch sử chat nếu cần lý do).
 - Working tree: kiểm tra lại bằng `git status`, đừng tin memory này nếu đã lâu.
