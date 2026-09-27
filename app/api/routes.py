@@ -7,6 +7,7 @@ Cac endpoint:
   GET    /health                  — Kiem tra server dang song
   GET    /papers                  — Lay danh sach bai bao status='ready'
   POST   /upload                  — Upload PDF, index chay nen (BackgroundTasks), tra 202
+                                     (hoac 200 neu file da index truoc do - dedup sha256)
   GET    /papers/{id}/status      — Poll tien do xu ly sau /upload
   DELETE /papers/{id}             — Xoa paper (cascade sections/chunks/paper_cards)
   POST   /ask                     — Hoi Agent va nhan cau tra loi
@@ -180,6 +181,17 @@ def _should_clear_stale_hash(existing: dict | None) -> bool:
     "/upload",
     response_model=UploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        200: {
+            "model": UploadResponse,
+            "description": "File (theo sha256) da duoc index truoc do - tra ve "
+                           "paper cu (paper_id goc, status='ready'), khong xu ly lai.",
+        },
+        202: {
+            "description": "Da nhan file moi, status='processing' - parse/embed/"
+                           "index chay nen, poll GET /papers/{paper_id}/status.",
+        },
+    },
     summary="Upload file PDF bai bao, index chay nen",
     tags=["Papers"],
 )

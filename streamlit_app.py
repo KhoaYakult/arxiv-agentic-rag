@@ -331,12 +331,16 @@ def upload_pdf(file_bytes: bytes, filename: str, paper_id: str | None = None) ->
     Upload file PDF len FastAPI server. Server tra ve 202 NGAY (khong doi
     parse/embed/index xong) - viec do chay nen, xem app/api/routes.py.
     Goi poll_paper_status() sau ham nay de biet khi nao thuc su xong.
+
+    Ngoai le: 200 (khong phai 202) khi noi dung file (sha256) da duoc index
+    truoc do - body co status='ready' va paper_id la cua paper CU (co the
+    khac paper_id vua nhap), khong can poll.
     """
     try:
         files = {"file": (filename, file_bytes, "application/pdf")}
         data = {"paper_id": paper_id} if paper_id else {}
         r = requests.post(f"{API_BASE}/upload", files=files, data=data, timeout=30)
-        if r.status_code == 202:
+        if r.status_code in (200, 202):
             return r.json()
         else:
             try:
@@ -418,6 +422,10 @@ with st.sidebar:
         label_visibility="visible",
     )
 
+    upload_notice = st.session_state.pop("upload_notice", None)
+    if upload_notice:
+        st.info(upload_notice)
+
     if st.button("⬆️  Upload & Index", disabled=not (server_ok and uploaded_file), use_container_width=True):
         with st.spinner("Đang gửi PDF lên server..."):
             result = upload_pdf(
@@ -425,7 +433,21 @@ with st.sidebar:
                 filename=uploaded_file.name,
                 paper_id=custom_id.strip() or None,
             )
-        if result and "error" not in result:
+        if result and "error" not in result and result.get("status") == "ready":
+            # /upload trả 200 (dedup): file này đã index trước đó, server trả về
+            # paper CŨ (paper_id có thể khác cái vừa nhập) — không cần poll.
+            reused_id = result["paper_id"]
+            if reused_id != st.session_state.selected_paper:
+                st.session_state.selected_paper = reused_id
+                st.session_state.chat_history = []
+                st.session_state.thread_id = f"session_{uuid.uuid4().hex[:8]}"
+            # Lưu thông báo qua session_state vì st.rerun() xoá mọi st.info vẽ trước đó
+            st.session_state.upload_notice = (
+                f"ℹ️ File này đã được index trước đó — dùng lại paper_id `{reused_id}` "
+                f"({result.get('num_chunks', 0)} chunks)."
+            )
+            st.rerun()
+        elif result and "error" not in result:
             # /upload trả 202 ngay — parse/embed/index chạy nền ở server.
             # Poll status ở đây để không phải đoán khi nào xong.
             with st.spinner("Đang parse + embed + index (có thể mất vài phút nếu paper nhiều chunk)..."):
@@ -447,9 +469,14 @@ with st.sidebar:
 
     if papers:
         paper_options = {p["paper_id"]: f"{p['title']} ({p['num_chunks']} chunks)" for p in papers}
+        paper_ids = list(paper_options.keys())
         chosen = st.selectbox(
             label="Bài báo",
-            options=list(paper_options.keys()),
+            options=paper_ids,
+            # Giữ đúng paper đang chọn (vd paper_id cũ vừa được dùng lại sau
+            # upload trùng file) thay vì luôn nhảy về phần tử đầu tiên.
+            index=(paper_ids.index(st.session_state.selected_paper)
+                   if st.session_state.selected_paper in paper_ids else 0),
             format_func=lambda pid: paper_options[pid],
             label_visibility="collapsed",
         )

@@ -40,9 +40,11 @@ class ChildChunk:
     paper_id: str
     text: str
     is_table: bool = False
-    page_num: int | None = None    # Trang PDF chứa ký tự đầu tiên của chunk. None
-                                    # nếu parser không chèn được marker trang (vd
-                                    # fallback fitz thuần trong app/ingestion/parser.py).
+    page_num: int | None = None    # Trang PDF chứa ký tự đầu tiên của chunk (kế thừa
+                                    # xuyên section, xem create_child_chunks). None nếu
+                                    # parser không chèn được marker trang (vd fallback
+                                    # fitz thuần trong app/ingestion/parser.py), hoặc
+                                    # chunk nằm trước marker đầu tiên của tài liệu.
     char_start: int | None = None  # Vị trí bắt đầu của chunk trong text của
                                     # ParentSection (SAU KHI đã bỏ marker trang) -
                                     # dùng cho small-to-big expansion sau này.
@@ -249,8 +251,23 @@ def create_child_chunks(
     child_chunks: list[ChildChunk] = []
     global_chunk_idx = 0
 
+    # Trang đang hiệu lực tính tới cuối section trước đó. Marker "<!-- page:N -->"
+    # thường nằm TRƯỚC heading nên hay bị split_parent_sections() gán vào cuối
+    # section liền trước - section tiếp theo (thật ra bắt đầu trên trang N) sẽ
+    # không có marker nào ở offset 0. Mang trang này sang section sau để vị trí
+    # 0 của nó vẫn tra được page_num. Bắt đầu là None (chưa thấy marker nào) -
+    # KHÔNG mặc định 1, vì marker đầu tiên có thể là trang 2+ (vd bỏ trang bìa),
+    # và tài liệu không có marker nào thì page_num phải giữ None trung thực.
+    current_page: int | None = None
+
     for sec in sections:
-        text, breakpoints = _strip_page_markers(sec.text)
+        text, own_breakpoints = _strip_page_markers(sec.text)
+        breakpoints = own_breakpoints
+        if not breakpoints or breakpoints[0][0] != 0:
+            breakpoints = [(0, current_page), *breakpoints]
+        # Cập nhật theo marker THẬT của section này (không tính mốc giả vừa chèn)
+        if own_breakpoints:
+            current_page = own_breakpoints[-1][1]
         if not text:
             continue
 

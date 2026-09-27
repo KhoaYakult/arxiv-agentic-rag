@@ -2,7 +2,7 @@
 
 System reference for ArXiv Agentic RAG. For the upgrade plan and rationale behind pending architectural changes, see [`ROADMAP.md`](ROADMAP.md). For contributor conventions and gotchas, see [`../CLAUDE.md`](../CLAUDE.md). For current in-progress state, see [`../project-memory/STATE.md`](../project-memory/STATE.md).
 
-> **Phase 2 cutover done (2026-09-20):** storage moved from ChromaDB + BM25 pickles + a JSON registry to a single Supabase Postgres (pgvector + full-text search). This doc describes the **current** (post-cutover) architecture. `app/indexing/vector_store.py`, `bm25_store.py`, and `hybrid_retriever.py` still exist on disk but are dead code — nothing imports them anymore — kept temporarily as a rollback path (see `project-memory/NEXT_STEPS.md`).
+> **Phase 2 cutover done (2026-09-20):** storage moved from ChromaDB + BM25 pickles + a JSON registry to a single Supabase Postgres (pgvector + full-text search). This doc describes the **current** (post-cutover) architecture. Phase 1's `app/indexing/vector_store.py`, `bm25_store.py`, and `hybrid_retriever.py` have since been deleted outright (2026-09-27, see *Layers* below). Chat history (LangGraph checkpointer) lives in the same Postgres DB too.
 
 ## Overview
 
@@ -61,17 +61,17 @@ flowchart TD
 
 ### Upload path (`POST /api/v1/upload`)
 
-1. `routes.upload_paper()` saves the raw PDF to `data/`, slugifies the filename into a `paper_id` (unless one is supplied).
+1. `routes.upload_paper()` hashes the upload (sha256) and, if a paper with the same content is already `ready`, returns **`200`** with that existing paper (its original `paper_id`, possibly different from the one supplied) without re-parsing. Otherwise it saves the raw PDF to `data/{paper_id}.pdf` (slugified from the filename unless a `paper_id` is supplied), creates the `papers` row with `status="processing"`, returns **`202`** immediately, and runs steps 2-5 below in a `BackgroundTasks` job. Clients poll `GET /papers/{paper_id}/status`.
 2. `chunker.process_paper_ingestion()` orchestrates:
-   - `parser.parse_pdf_to_markdown()` — PyMuPDF4LLM (`page_chunks=True`) with a raw-`fitz` fallback if it OOMs. Output is a single Markdown string with `<!-- page:N -->` markers between pages (not yet consumed downstream — page-aware chunking is still on the backlog).
+   - `parser.parse_pdf_to_markdown()` — PyMuPDF4LLM (`page_chunks=True`) with a raw-`fitz` fallback if it OOMs. Output is a single Markdown string with `<!-- page:N -->` markers between pages (the raw-`fitz` fallback emits no markers).
    - `chunker.split_parent_sections()` — regex heading detection splits the Markdown into `ParentSection` objects (`section_id`, `section_name`, `text`).
-   - `chunker.create_child_chunks()` — sliding-window split of each section into `ChildChunk` objects (`chunk_id`, `parent_section_id`, `parent_section_name`, `paper_id`, `text`, `is_table`), snapping cuts to paragraph → sentence → word boundaries.
+   - `chunker.create_child_chunks()` — strips the page markers out of each section's text (they never reach the embedded/generated text) and sliding-window splits it into `ChildChunk` objects (`chunk_id`, `parent_section_id`, `parent_section_name`, `paper_id`, `text`, `is_table`, `page_num`, `char_start`, `char_end`, `level`), snapping cuts to paragraph → sentence → word boundaries. `page_num` is the page of the chunk's first character; the page in effect is carried across section boundaries (a marker usually lands at the end of the *previous* section, just before the next heading), so every chunk after the document's first marker gets a real page — 181/181 chunks on `data/sample_cortexODE.pdf`. `page_num` is `NULL` only when the document has no markers at all (fitz fallback) or for content before the first marker — never a guessed page 1. `char_start`/`char_end` are offsets into the marker-stripped section text.
    - The Phase 1 JSON chunk cache (`load_chunks_from_file`) is **no longer used** here — it only ever cached `ChildChunk`s, never `ParentSection`s, so a cache hit would silently produce empty sections now that sections are actually persisted. Every upload re-parses.
 3. `embeddings.get_embedding_provider().embed_documents()` embeds every chunk's text via the Gemini API (`task_type=RETRIEVAL_DOCUMENT`, 768-dim). Batches of ≤100 texts with a **61-second sleep between batches** — Gemini's free-tier quota is metered per embedded item per minute, not per HTTP call, so a 182-chunk paper takes noticeably longer than a 90-chunk one to upload (see `project-memory/FIXED_BUGS.md` #11).
 4. `repository.upsert_paper()` writes the `papers` row (`status="processing"` first, then `"ready"` once steps 5-6 succeed), `repository.insert_sections()` writes `ParentSection`s and returns a `{section_id: postgres_pk}` map, `repository.insert_chunks()` writes `ChildChunk`s + their embeddings using that map for the `section_pk` foreign key.
 5. Postgres auto-generates the `fts` (full-text search) column on `chunks` via `GENERATED ALWAYS AS (to_tsvector(...))` — no separate sparse-index write step, which is what eliminates the Phase 1 class of bug where the dense and sparse indexes could drift out of sync (`FIXED_BUGS.md` #6).
 
-**Note:** this whole flow is still synchronous from the client's point of view — `/upload` blocks until parsing + embedding + writing finish, which for a large paper now includes the rate-limit cooldown from step 3. `BackgroundTasks` is the next planned change (`project-memory/NEXT_STEPS.md`).
+**Note:** steps 2-5 run in the background — `/upload` returns `202` right away, and failures are caught and recorded as `papers.status='failed'` rather than raised. A large paper can take minutes to reach `ready` because of the rate-limit cooldown in step 3.
 
 ### Query path (`POST /api/v1/ask`)
 
@@ -85,8 +85,8 @@ flowchart TD
 
    - `retrieve_node` (async): embeds the question (`embed_query`, `task_type=RETRIEVAL_QUERY`), calls `repository.hybrid_search()` — dense (pgvector cosine `<=>`, backed by an HNSW index) and sparse (Postgres `websearch_to_tsquery` + `ts_rank_cd`) run concurrently via `asyncio.gather`, fused by the same `reciprocal_rank_fusion()` function from Phase 1 (reused as-is — the algorithm doesn't care what produced the two ranked lists), then reranked (Cohere if `COHERE_API_KEY` is set, else a local CrossEncoder) down to top-5.
    - `grade_node`, `rewrite_node`, `generate_node`: same logic as Phase 1, just `async def` now with `await chain.ainvoke(...)` instead of `chain.invoke(...)` — LangChain runnables support both natively, so the prompts/templates didn't need to change.
-3. Conversation memory is `AsyncSqliteSaver` at `data/chat_memory.db` (still SQLite — only the sync/async wrapper changed; the Postgres checkpointer migration is a separate, not-yet-done step). The graph itself is built lazily on first call (`_get_rag_app()`), matching the same lazy-async-singleton pattern `repository.get_pool()` uses, because compiling the graph needs an awaited connection that can't happen at plain module-import time.
-4. `routes.ask_agent()` reads `result["retrieved_chunks"]` to populate the `sources` field of the response (each item carries `chunk_id`, `parent_section_name`, `text`).
+3. Conversation memory is `AsyncPostgresSaver` (`langgraph-checkpoint-postgres`), keyed by `thread_id`, stored in the **same Supabase Postgres DB** (`checkpoints`/`checkpoint_writes`/`checkpoint_blobs` tables, created by `saver.setup()`), so history survives restarts and redeploys. It uses its own `psycopg_pool.AsyncConnectionPool(min_size=1, max_size=1)` — `langgraph-checkpoint-postgres` only supports the `psycopg` driver, not `asyncpg` — which reconnects on its own if the connection drops (total DB connections: 5 asyncpg + 1 checkpointer = 6). The graph (and the pool) is built lazily on the first `ask()` call (`_get_rag_app()`, guarded by an `asyncio.Lock` so concurrent first requests build it once), because compiling the graph needs an awaited connection that can't happen at plain module-import time. Consequence: a bad `DATABASE_URL` for the checkpointer surfaces on the first `/ask`, not at startup, so `/health` stays green. `close_checkpointer()` closes the pool in the FastAPI `lifespan` shutdown.
+4. `routes.ask_agent()` reads `result["retrieved_chunks"]` to populate the `sources` field of the response (each item carries `chunk_id`, `parent_section_name`, `text`, `page_num`).
 
 **Why async was mandatory, not a style choice:** `asyncpg` (the Postgres driver) only supports async. Bridging a single sync node with `asyncio.run()` would have broken `repository.py`'s cached connection pool across calls — a pool is bound to the event loop that created it, and `asyncio.run()` creates and tears down a new loop every call.
 
@@ -109,9 +109,10 @@ Phase 1's `app/indexing/vector_store.py`, `bm25_store.py`, and `hybrid_retriever
 ## Key data structures
 
 ```python
-# app/ingestion/chunker.py — unchanged from Phase 1; page_num/char_start/
-# char_end/level are still backlog items, so the Postgres columns for them
-# are always NULL today (see db/schema.sql and project-memory/NEXT_STEPS.md)
+# app/ingestion/chunker.py — page_num is populated from the parser's
+# <!-- page:N --> markers (NULL only with no markers / before the first one);
+# char_start/char_end are offsets into the marker-stripped section text;
+# level is always 0 until RAPTOR summary nodes (Phase 5) exist
 @dataclass
 class ParentSection:
     section_id: str
@@ -126,6 +127,10 @@ class ChildChunk:
     paper_id: str
     text: str
     is_table: bool = False
+    page_num: int | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+    level: int = 0
 
 # app/agent/rag_graph.py
 class AgentState(TypedDict):
@@ -157,10 +162,10 @@ paper_cards(paper_id PK/FK, summary, embedding vector(768))  -- Phase 4, not use
 |---|---|---|
 | Uploaded PDFs | `data/*.pdf` | No (ephemeral disk on Railway) |
 | Papers, sections, chunks, embeddings | **Supabase Postgres** | **Yes** |
-| Chat history | `data/chat_memory.db` (SQLite via `AsyncSqliteSaver`) | No — Postgres checkpointer migration still pending |
+| Chat history | **Supabase Postgres** (`AsyncPostgresSaver` checkpoint tables) | **Yes** |
 | Model download cache | `cache/huggingface/` | No (only used by the now-dead `sentence-transformers` CrossEncoder fallback path in `reranker.py`) |
 
-The core data (papers/sections/chunks/embeddings) now survives a redeploy — this was the top item in `ROADMAP.md` Phase 2 and is done. Chat history is the one piece still on ephemeral disk.
+The core data (papers/sections/chunks/embeddings) and chat history now survive a redeploy — this was the top item in `ROADMAP.md` Phase 2 and is done. Only the uploaded PDF files themselves are still on ephemeral disk (they're not needed after indexing).
 
 ## Deployment topology
 
@@ -173,8 +178,6 @@ The core data (papers/sections/chunks/embeddings) now survives a redeploy — th
 
 See `ROADMAP.md` Phase 2 checklist and `project-memory/NEXT_STEPS.md` for the full, currently-accurate list. Highlights relevant to anyone reading this file for the first time:
 
-- `/upload` still blocks synchronously — now includes the embedding rate-limit cooldown for large papers, making `BackgroundTasks` a higher priority than originally planned.
-- Chat history (SQLite) doesn't survive a redeploy; the rest of the data does.
-- No page numbers / char offsets on chunks yet — `chunker.py` hasn't been upgraded to page-aware chunking.
-- No `DELETE /papers/{id}` route yet, though `repository.delete_paper()` exists.
+- `page_num` is derived from marker strings in the parser's Markdown output, not from a structured per-page parser result — the `parser.py` per-page offset refactor is still open.
+- `char_start`/`char_end` are stored but not yet used (small-to-big expansion to the parent section isn't implemented).
 - Not yet redeployed to Railway — only verified locally against the real Supabase project.

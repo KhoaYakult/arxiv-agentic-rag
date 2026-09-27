@@ -173,3 +173,58 @@ class TestCreateChildChunksPageAwareness:
         assert len(chunks) > 1
         for c in chunks:
             assert c.char_end - c.char_start == len(c.text)
+
+    def test_section_without_own_marker_inherits_page_from_previous_section(self):
+        # Marker trang 2 nam o CUOI section truoc (truoc heading), section sau
+        # khong co marker nao - phai ke thua trang 2, khong duoc la None.
+        sections = [
+            ParentSection(
+                section_id="sec_0",
+                section_name="Intro",
+                text="<!-- page:1 -->\nIntro text on page one.\n\n<!-- page:2 -->\n",
+            ),
+            ParentSection(
+                section_id="sec_1",
+                section_name="Method",
+                text="Method text that begins on page two, no marker of its own.",
+            ),
+            ParentSection(
+                section_id="sec_2",
+                section_name="Results",
+                text="Results still on page two.\n<!-- page:3 -->\nNow on page three.",
+            ),
+        ]
+        chunks = create_child_chunks(sections, paper_id="p1", max_chars=800, overlap_chars=150)
+        by_sec = {c.parent_section_id: c for c in chunks}
+        assert by_sec["sec_0"].page_num == 1
+        assert by_sec["sec_1"].page_num == 2
+        # Vi tri 0 cua sec_2 (truoc marker rieng cua no) van la trang 2
+        assert by_sec["sec_2"].page_num == 2
+
+    def test_inherited_page_in_sliding_window_before_first_own_marker(self):
+        sections = [
+            ParentSection(section_id="sec_0", section_name="A",
+                          text="<!-- page:5 -->\nShort section on page five."),
+            ParentSection(
+                section_id="sec_1", section_name="B",
+                text=("X" * 40 + " ") * 10 + "<!-- page:6 -->\n" + ("Y" * 40 + " ") * 10,
+            ),
+        ]
+        chunks = create_child_chunks(sections, paper_id="p1", max_chars=200, overlap_chars=20)
+        sec1 = [c for c in chunks if c.parent_section_id == "sec_1"]
+        assert sec1[0].page_num == 5
+        assert sec1[-1].page_num == 6
+        assert all(c.page_num is not None for c in chunks)
+
+    def test_content_before_first_marker_stays_none_not_page_one(self):
+        # Marker dau tien la trang 2 (vd bo trang bia) - phan truoc do phai la
+        # None trung thuc, khong duoc doan la trang 1.
+        sections = [
+            ParentSection(section_id="sec_0", section_name="Header",
+                          text="Header text before any marker at all."),
+            ParentSection(section_id="sec_1", section_name="Body",
+                          text="<!-- page:2 -->\nBody text on page two."),
+        ]
+        chunks = create_child_chunks(sections, paper_id="p1", max_chars=800, overlap_chars=150)
+        assert chunks[0].page_num is None
+        assert chunks[1].page_num == 2

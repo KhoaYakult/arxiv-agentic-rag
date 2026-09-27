@@ -1,5 +1,5 @@
-# Pinned to versions installed + tested in this repo's .venv on 2026-09-13
-# (pytest suite green, all app modules import cleanly, LangGraph agent
+# Pinned to versions installed + tested in this repo's .venv, last updated
+# 2026-09-27 (pytest suite green, all app modules import cleanly, LangGraph agent
 # compiles). Regenerate by installing into a fresh venv and updating the
 # versions below - do not hand-edit version numbers without re-testing.
 

@@ -13,6 +13,7 @@ lan goi (moi asyncio.run() tao 1 event loop moi, pool cache lai bi gan voi
 loop cu da dong). Xem project-memory/FIXED_BUGS.md.
 """
 
+import asyncio
 import sys
 import uuid
 from pathlib import Path
@@ -169,16 +170,17 @@ def decide_after_grade(state: AgentState) -> str:
 # =============================================================================
 # BUILD GRAPH - lazy async singleton
 #
-# Compile can checkpointer, ma AsyncPostgresSaver can 1 ket noi psycopg (async)
+# Compile can checkpointer, ma AsyncPostgresSaver can 1 pool psycopg (async)
 # de tao - khong the goi await o module-level (luc import). Nen build 1 lan
-# duy nhat, lazy, o lan goi ask() dau tien, giong pattern get_pool() trong
-# app/storage/repository.py.
+# duy nhat, lazy, o lan goi ask() dau tien (KHONG phai luc app khoi dong),
+# co asyncio.Lock bao ve de nhieu request dau tien dong thoi khong moi cai
+# tu build 1 app/pool rieng (cac pool thua se bi ro ri, khong ai close).
 # =============================================================================
 
 _rag_app = None
+_rag_app_lock = asyncio.Lock()
 
-
-_checkpointer_conn = None
+_checkpointer_pool = None
 
 
 async def _get_checkpointer():
@@ -187,26 +189,38 @@ async def _get_checkpointer():
     papers/chunks (settings.database_url), thay AsyncSqliteSaver tam thoi
     truoc do (SQLite tren dia ephemeral, mat het moi lan Railway redeploy).
 
-    Dung 1 ket noi psycopg RIENG, KHONG dung chung asyncpg pool cua
+    Dung 1 pool psycopg RIENG, KHONG dung chung asyncpg pool cua
     app/storage/repository.py - AsyncPostgresSaver (thu vien
     langgraph-checkpoint-postgres) chi ho tro driver psycopg, khong ho tro
     asyncpg. 2 driver Postgres khac nhau cung tro toi 1 DATABASE_URL khong
     xung dot - Postgres cho phep nhieu client ket noi doc lap binh thuong.
 
-    prepare_threshold=0: TAT cache prepared statement phia client. Bat buoc
-    khi ket noi qua Supabase Session pooler (PgBouncer) - PgBouncer khong ho
-    tro prepared statement song song qua nhieu client, de mac dinh se loi
-    "prepared statement ... does not exist" sau vai lan goi.
+    AsyncConnectionPool(min_size=1, max_size=1) thay vi 1 AsyncConnection tran:
+    van dung dung 1 ket noi (giu tong ngan sach ket noi o muc 6 = 5 asyncpg +
+    1 checkpointer), nhung pool tu mo lai ket noi moi neu ket noi cu bi rot
+    (pooler restart, mang chap chon, idle timeout) - ket noi tran thi hong
+    vinh vien, moi /ask sau do deu loi cho toi khi restart ca process.
+    check=check_connection: kiem tra ket noi con song truoc khi giao ra.
+
+    prepare_threshold=0: TAT cache prepared statement phia client. Can thiet
+    neu DATABASE_URL tro toi pooler o che do TRANSACTION (PgBouncer transaction
+    mode khong ho tro prepared statement xuyen client, se loi "prepared
+    statement ... does not exist"). Du an hien dung Session pooler (moi client
+    giu nguyen 1 ket noi server nen khong bi gioi han nay), nhung giu
+    prepare_threshold=0 cho an toan neu sau nay doi sang transaction mode -
+    gan nhu khong ton hieu nang voi so query it cua checkpointer.
 
     Khong bat except roi fallback im lang o day (khac ban SQLite cu) - neu
     DATABASE_URL sai/thieu hoac Postgres khong ket noi duoc, muon that bai
-    ngay va ro rang luc khoi dong app, khong muon lich su chat am tham bien
-    mat nhu bug #7 (xem project-memory/FIXED_BUGS.md) tung xay ra.
+    ro rang, khong muon lich su chat am tham bien mat nhu bug #7 (xem
+    project-memory/FIXED_BUGS.md) tung xay ra. Luu y: vi build lazy, loi chi
+    lo ra o lan goi /ask DAU TIEN (khong phai luc khoi dong) - /health van
+    xanh du DATABASE_URL cua checkpointer co van de.
     """
-    global _checkpointer_conn
-    import psycopg
+    global _checkpointer_pool
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from psycopg.rows import dict_row
+    from psycopg_pool import AsyncConnectionPool
 
     if not settings.database_url:
         raise ValueError(
@@ -214,26 +228,35 @@ async def _get_checkpointer():
             "de luu chat history. Xem .env.example."
         )
 
-    conn = await psycopg.AsyncConnection.connect(
+    pool = AsyncConnectionPool(
         settings.database_url,
-        autocommit=True,
-        prepare_threshold=0,
-        row_factory=dict_row,
+        min_size=1,
+        max_size=1,
+        open=False,
+        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+        check=AsyncConnectionPool.check_connection,
     )
-    _checkpointer_conn = conn
-    saver = AsyncPostgresSaver(conn)
-    await saver.setup()
-    print("[INFO] Checkpointer: AsyncPostgresSaver (Postgres)", flush=True)
+    try:
+        await pool.open(wait=True)
+        saver = AsyncPostgresSaver(pool)
+        await saver.setup()
+    except BaseException:
+        # Dong pool vua mo roi raise lai nguyen loi - khong nuot loi, chi tranh
+        # ro ri pool khi setup() that bai giua chung.
+        await pool.close()
+        raise
+    _checkpointer_pool = pool
+    print("[INFO] Checkpointer: AsyncPostgresSaver (Postgres, psycopg pool)", flush=True)
     return saver
 
 
 async def close_checkpointer() -> None:
-    """Dong ket noi psycopg cua checkpointer luc app shutdown - goi trong
+    """Dong pool psycopg cua checkpointer luc app shutdown - goi trong
     FastAPI lifespan cua app/api/main.py, cung cho voi repository.close_pool()."""
-    global _checkpointer_conn, _rag_app
-    if _checkpointer_conn is not None:
-        await _checkpointer_conn.close()
-        _checkpointer_conn = None
+    global _checkpointer_pool, _rag_app
+    if _checkpointer_pool is not None:
+        await _checkpointer_pool.close()
+        _checkpointer_pool = None
     _rag_app = None
 
 
@@ -259,8 +282,13 @@ async def _build_rag_app():
 
 async def _get_rag_app():
     global _rag_app
-    if _rag_app is None:
-        _rag_app = await _build_rag_app()
+    if _rag_app is not None:
+        return _rag_app
+    async with _rag_app_lock:
+        # Kiem tra lai sau khi co lock - request khac co the vua build xong
+        # trong luc request nay dang cho.
+        if _rag_app is None:
+            _rag_app = await _build_rag_app()
     return _rag_app
 
 
@@ -294,8 +322,6 @@ async def ask(question: str, paper_id: str, thread_id: str = "default") -> dict:
 # =============================================================================
 
 if __name__ == "__main__":
-    import asyncio
-
     async def _main():
         PAPER_ID = "test_cortex_ode"
         THREAD_ID = f"test_{uuid.uuid4().hex[:8]}"

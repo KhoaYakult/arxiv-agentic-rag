@@ -38,11 +38,13 @@ class UploadResponse(BaseModel):
         description="Ten bai bao (lay tu ten file PDF)."
     )
     status: Literal["processing", "ready", "failed"] = Field(
-        description="Luon la 'processing' ngay sau khi upload - viec index chay nen."
+        description="'processing' (HTTP 202) khi la file moi - viec index chay nen; "
+                    "'ready' (HTTP 200) khi file da duoc index truoc do (dedup sha256)."
     )
     num_chunks: int = Field(
         default=0,
-        description="Luon la 0 luc nay - chua biet duoc cho den khi xu ly nen xong.",
+        description="0 khi 'processing' (chua biet cho den khi xu ly nen xong); "
+                    "so chunk that cua paper cu khi 'ready' (dedup).",
     )
     message: str = Field(
         description="Thong bao ket qua xu ly."
