@@ -40,16 +40,16 @@ class ChildChunk:
     paper_id: str
     text: str
     is_table: bool = False
-    page_num: int | None = None    # Trang PDF chua ky tu dau tien cua chunk. None
-                                    # neu parser khong chen duoc marker trang (vd
-                                    # fallback fitz thuan trong app/ingestion/parser.py).
-    char_start: int | None = None  # Vi tri bat dau cua chunk trong text cua
-                                    # ParentSection (SAU KHI da bo marker trang) -
-                                    # dung cho small-to-big expansion sau nay.
-    char_end: int | None = None    # Vi tri ket thuc, cung he toa do voi char_start.
-    level: int = 0                 # 0 = chunk thuong; >0 danh cho RAPTOR summary
-                                    # node (Phase 5) - chua tinh o day, chi khai bao
-                                    # truoc cho khop cot `level` da co san trong schema.
+    page_num: int | None = None    # Trang PDF chứa ký tự đầu tiên của chunk. None
+                                    # nếu parser không chèn được marker trang (vd
+                                    # fallback fitz thuần trong app/ingestion/parser.py).
+    char_start: int | None = None  # Vị trí bắt đầu của chunk trong text của
+                                    # ParentSection (SAU KHI đã bỏ marker trang) -
+                                    # dùng cho small-to-big expansion sau này.
+    char_end: int | None = None    # Vị trí kết thúc, cùng hệ toạ độ với char_start.
+    level: int = 0                 # 0 = chunk thường; >0 dành cho RAPTOR summary
+                                    # node (Phase 5) - chưa tính ở đây, chỉ khai báo
+                                    # trước cho khớp cột `level` đã có sẵn trong schema.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
