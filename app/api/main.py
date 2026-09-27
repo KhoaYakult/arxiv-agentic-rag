@@ -42,8 +42,10 @@ from app.api.routes import router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
+    from app.agent.rag_graph import close_checkpointer
     from app.storage import repository
 
+    await close_checkpointer()
     await repository.close_pool()
 
 

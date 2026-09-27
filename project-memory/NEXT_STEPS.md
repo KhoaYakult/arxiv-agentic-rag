@@ -42,9 +42,15 @@ Chi tiết đầy đủ + schema SQL ở `docs/ROADMAP.md`.
 - [x] `app/api/main.py` thêm `lifespan` (`asynccontextmanager`) gọi `repository.close_pool()` lúc shutdown.
 - [x] **Bug #12 tìm được + sửa trong lúc verify:** `/upload` lưu PDF theo tên file gốc thay vì `paper_id` → 2 paper trùng tên file ghi đè nhau trên đĩa → đã làm mất file mẫu `data/sample_test_cortexODE.pdf` (không phục hồi được, gitignored). Đã sửa: cả `/upload` và `DELETE` dùng `f"{paper_id}.pdf"`. **`data/` hiện không còn PDF mẫu nào — cần upload 1 PDF thật trước khi test tay.**
 
+**Checkpointer → `AsyncPostgresSaver` HOÀN TẤT — verify thật (2026-09-27):**
+- [x] `app/agent/rag_graph.py::_get_checkpointer()` đổi từ `AsyncSqliteSaver` (SQLite, `data/chat_memory.db`) sang `AsyncPostgresSaver` (`langgraph-checkpoint-postgres`), dùng 1 kết nối `psycopg` RIÊNG (không dùng chung `asyncpg` pool của `repository.py` — `AsyncPostgresSaver` chỉ hỗ trợ driver `psycopg`, không hỗ trợ `asyncpg`) tới CÙNG `settings.database_url`. `prepare_threshold=0` vì Supabase Session pooler (PgBouncer) không hỗ trợ prepared statement song song qua nhiều client. Không còn `except Exception` bắt rồi fallback im lặng (khác bản SQLite cũ, xem bug #7 ở `FIXED_BUGS.md`) — lỗi kết nối Postgres giờ raise ngay lúc khởi động, rõ ràng.
+- [x] Thêm `close_checkpointer()` (đóng kết nối psycopg lúc shutdown), gọi trong `app/api/main.py::lifespan` cùng với `repository.close_pool()`.
+- [x] `requirements.txt`: bỏ `langgraph-checkpoint-sqlite`, thêm `langgraph-checkpoint-postgres`/`psycopg[binary]`/`psycopg-pool`/`orjson`. `.gitignore`: bỏ 3 dòng `data/chat_memory.db*` (không còn gì tạo file này nữa), đã xoá file cũ còn sót lại trên đĩa.
+- [x] Verify thật: `python app/agent/rag_graph.py` in đúng `[INFO] Checkpointer: AsyncPostgresSaver (Postgres)` (không phải `[WARN]`/SQLite), Turn 2 `Messages: 4`. Verify riêng khả năng **sống sót qua process restart** (mô phỏng Railway redeploy) — chạy `ask()` với cùng `thread_id='plan_task1_probe'` ở 2 lệnh `python -c "..."` riêng biệt (2 process khác nhau hoàn toàn, không có object Python nào sống sót giữa 2 lần chạy): lần 1 in `messages so far: 2`, lần 2 in `messages so far: 4` — chứng minh lịch sử chat thật sự nằm trong Postgres, không phải trong bộ nhớ process. Đã dọn sạch 3 bảng `checkpoints`/`checkpoint_writes`/`checkpoint_blobs` cho `thread_id` test sau khi verify xong.
+- [x] `ruff check .` sạch, `pytest tests/` 20/20 pass (task này không thêm pytest mới — hành vi live-infra, verify bằng chạy thật theo đúng convention `STATE.md`).
+
 **Cố ý CHƯA làm:**
 - [ ] **Xoá hẳn** `app/indexing/vector_store.py`, `app/indexing/bm25_store.py`, `app/indexing/hybrid_retriever.py` — đã KHÔNG còn được routes.py/rag_graph.py dùng nữa (cutover xong), nhưng cố ý giữ lại code cũ thêm 1 nhịp phòng khi cần rollback nhanh. Xoá ở bước sau khi user xác nhận ổn định.
-- [ ] Checkpointer → `AsyncPostgresSaver` thật (đang tạm dùng `AsyncSqliteSaver`, vẫn SQLite - chat history vẫn mất khi Railway redeploy, chưa xong hoàn toàn theo ROADMAP)
 - [ ] `ChildChunk` thêm `page_num`/`char_start`/`char_end`/`level` + `chunker.py` xử lý page-aware (`insert_chunks()` hiện ghi NULL cho các cột này)
 - [ ] File dedup qua `file_hash` (cột đã có trong schema, `get_paper_by_hash()` đã viết trong repository.py, nhưng `/upload` chưa gọi tới)
 

@@ -1,6 +1,9 @@
 """
 app/agent/rag_graph.py - LangGraph RAG Agent (Backend Standard)
-Memory: AsyncSqliteSaver (data/chat_memory.db)
+Memory: AsyncPostgresSaver - checkpoint luu trong CUNG Postgres DB voi
+papers/chunks (settings.database_url), song sot qua redeploy (khac
+AsyncSqliteSaver truoc do, luu tren dia ephemeral cua Railway va mat het
+moi lan redeploy).
 
 Phase 2: retrieve_node dung repository.hybrid_search() (Postgres/pgvector +
 FTS) thay HybridRetriever (ChromaDB + rank_bm25) cua Phase 1. Toan bo graph
@@ -166,7 +169,7 @@ def decide_after_grade(state: AgentState) -> str:
 # =============================================================================
 # BUILD GRAPH - lazy async singleton
 #
-# Compile can checkpointer, ma AsyncSqliteSaver can 1 ket noi aiosqlite (async)
+# Compile can checkpointer, ma AsyncPostgresSaver can 1 ket noi psycopg (async)
 # de tao - khong the goi await o module-level (luc import). Nen build 1 lan
 # duy nhat, lazy, o lan goi ask() dau tien, giong pattern get_pool() trong
 # app/storage/repository.py.
@@ -175,23 +178,63 @@ def decide_after_grade(state: AgentState) -> str:
 _rag_app = None
 
 
-async def _get_checkpointer():
-    """AsyncSqliteSaver - can cho graph chay async (ainvoke). Con tro ve o
-    Phase 2 sau (checkpointer Postgres qua AsyncPostgresSaver, xem
-    project-memory/NEXT_STEPS.md) - gio van dung SQLite, chi doi sync -> async."""
-    try:
-        import aiosqlite
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+_checkpointer_conn = None
 
-        db_path = str(settings.data_dir / "chat_memory.db")
-        conn = await aiosqlite.connect(db_path)
-        saver = AsyncSqliteSaver(conn)
-        print(f"[INFO] Checkpointer: AsyncSqliteSaver ({db_path})", flush=True)
-        return saver
-    except Exception as e:
-        from langgraph.checkpoint.memory import InMemorySaver
-        print(f"[WARN] AsyncSqliteSaver loi: {e}. Fallback: InMemorySaver.", flush=True)
-        return InMemorySaver()
+
+async def _get_checkpointer():
+    """
+    AsyncPostgresSaver - luu chat history vao CUNG Postgres DB voi
+    papers/chunks (settings.database_url), thay AsyncSqliteSaver tam thoi
+    truoc do (SQLite tren dia ephemeral, mat het moi lan Railway redeploy).
+
+    Dung 1 ket noi psycopg RIENG, KHONG dung chung asyncpg pool cua
+    app/storage/repository.py - AsyncPostgresSaver (thu vien
+    langgraph-checkpoint-postgres) chi ho tro driver psycopg, khong ho tro
+    asyncpg. 2 driver Postgres khac nhau cung tro toi 1 DATABASE_URL khong
+    xung dot - Postgres cho phep nhieu client ket noi doc lap binh thuong.
+
+    prepare_threshold=0: TAT cache prepared statement phia client. Bat buoc
+    khi ket noi qua Supabase Session pooler (PgBouncer) - PgBouncer khong ho
+    tro prepared statement song song qua nhieu client, de mac dinh se loi
+    "prepared statement ... does not exist" sau vai lan goi.
+
+    Khong bat except roi fallback im lang o day (khac ban SQLite cu) - neu
+    DATABASE_URL sai/thieu hoac Postgres khong ket noi duoc, muon that bai
+    ngay va ro rang luc khoi dong app, khong muon lich su chat am tham bien
+    mat nhu bug #7 (xem project-memory/FIXED_BUGS.md) tung xay ra.
+    """
+    global _checkpointer_conn
+    import psycopg
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg.rows import dict_row
+
+    if not settings.database_url:
+        raise ValueError(
+            "DATABASE_URL chua duoc cau hinh - AsyncPostgresSaver can Postgres "
+            "de luu chat history. Xem .env.example."
+        )
+
+    conn = await psycopg.AsyncConnection.connect(
+        settings.database_url,
+        autocommit=True,
+        prepare_threshold=0,
+        row_factory=dict_row,
+    )
+    _checkpointer_conn = conn
+    saver = AsyncPostgresSaver(conn)
+    await saver.setup()
+    print("[INFO] Checkpointer: AsyncPostgresSaver (Postgres)", flush=True)
+    return saver
+
+
+async def close_checkpointer() -> None:
+    """Dong ket noi psycopg cua checkpointer luc app shutdown - goi trong
+    FastAPI lifespan cua app/api/main.py, cung cho voi repository.close_pool()."""
+    global _checkpointer_conn, _rag_app
+    if _checkpointer_conn is not None:
+        await _checkpointer_conn.close()
+        _checkpointer_conn = None
+    _rag_app = None
 
 
 async def _build_rag_app():
