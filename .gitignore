@@ -41,3 +41,7 @@ data/*.json
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Ghi chú nội bộ / hướng dẫn cho AI - giữ trên máy, không public lên GitHub
+project-memory/
+CLAUDE.md
