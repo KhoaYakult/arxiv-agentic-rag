@@ -125,9 +125,9 @@ flowchart TD
 
 ---
 
-## Sơ đồ 2: Luồng dữ liệu Phase 2 — HIỆN TẠI (cutover xong, verify thật 2026-09-20)
+## Sơ đồ 2: Luồng dữ liệu Phase 2 — HIỆN TẠI (cutover verify thật 2026-09-20, cập nhật theo backlog Phase 2 ngày 2026-09-27)
 
-> Bản này đã sửa lại theo đúng code thật, khác vài chỗ so với bản phác thảo "Target" ban đầu (ghi chú "❌ chưa làm" ở dưới cho những chỗ khác dự kiến).
+> Bản này đã sửa lại theo đúng code thật, khác vài chỗ so với bản phác thảo "Target" ban đầu (ghi chú "❌ chưa làm" ở dưới cho những chỗ khác dự kiến). Đã phản ánh: checkpointer Postgres, page-aware chunking, dedup sha256 + upload chạy nền, và việc xoá hẳn code Phase 1.
 
 ```mermaid
 flowchart TD
@@ -135,9 +135,10 @@ flowchart TD
         direction TB
 
         subgraph TABLES ["Bảng chính"]
-            T_PAPERS["papers<br/>paper_id PK, title, file_hash, num_pages, num_chunks, status"]
-            T_SECTS["sections (Parent)<br/>id, paper_id FK, section_id, name, text, page_start/end"]
-            T_CHUNKS["chunks (Child)<br/>id, chunk_id UNIQUE, paper_id FK, section_pk FK, text<br/>embedding: vector(768) [HNSW] · fts: tsvector [GIN, tự sinh]"]
+            T_PAPERS["papers<br/>paper_id PK, title, filename, file_hash UNIQUE (toàn bảng), num_pages, num_chunks, status"]
+            T_SECTS["sections (Parent)<br/>id, paper_id FK, section_id, name, level, text<br/>page_start/end: có cột nhưng chưa được ghi (luôn NULL)"]
+            T_CHUNKS["chunks (Child)<br/>id, chunk_id UNIQUE, paper_id FK, section_pk FK, text, is_table<br/>page_num, char_start, char_end, level (đã ghi từ 2026-09-27)<br/>embedding: vector(768) [HNSW] · fts: tsvector [GIN, tự sinh]"]
+            T_CKPT["checkpoints / checkpoint_writes / checkpoint_blobs<br/>lịch sử chat - AsyncPostgresSaver tự tạo qua setup()"]
             T_CARDS["paper_cards<br/>❌ CHƯA DÙNG - schema có sẵn, đợi Phase 4 (multi-paper routing)"]
         end
 
@@ -146,12 +147,16 @@ flowchart TD
     end
 
     subgraph ING ["Ingestion (POST /upload) - app/api/routes.py"]
-        PDF2["PDF"] --> PARSE2["parser.py<br/>chèn marker &lt;!-- page:N --&gt; (không đổi từ Phase 1)"]
+        PDF2["PDF"] --> HASH["upload_paper(): sha256 nội dung file<br/>get_paper_by_hash()"]
+        HASH -->|"trùng + status='ready'"| REUSE["Trả HTTP 200, paper cũ<br/>KHÔNG parse/embed lại"]
+        HASH -->|"mới, hoặc trùng nhưng 'processing'/'failed'<br/>(gỡ file_hash cũ bằng clear_stale_file_hash)"| SAVE["Lưu data/{paper_id}.pdf<br/>upsert_paper(status='processing')<br/>Trả HTTP 202 NGAY"]
+        SAVE -->|"BackgroundTasks: _process_and_index_paper()"| PARSE2["parser.py<br/>chèn marker &lt;!-- page:N --&gt; (không đổi từ Phase 1)"]
         PARSE2 --> CHUNK2["chunker.py<br/>✅ page-aware (2026-09-27) - gỡ marker, tính page_num/char_start/char_end xuyên section"]
         CHUNK2 --> EMB2["embeddings.GeminiEmbeddingProvider<br/>batch <=100, tự cho 61s/batch (quota free-tier - bug #11)"]
         EMB2 --> INS1["repository.upsert_paper()"]
         INS1 --> INS2["repository.insert_sections()<br/>1 transaction rieng"]
         INS2 --> INS3["repository.insert_chunks()<br/>1 transaction rieng (KHONG chung voi insert_sections)"]
+        INS3 --> DONE["set_paper_status('ready', num_chunks)<br/>lỗi bất kỳ → 'failed' (client poll GET /papers/{id}/status)"]
         INS3 --> TABLES
     end
 
@@ -170,6 +175,7 @@ flowchart TD
         RRF2 --> RERANK2["reranker.RerankerManager<br/>Cohere / local CrossEncoder - KHONG DOI tu Phase 1, Jina chua lam"]
         RERANK2 --> AGENT2["LangGraph Agent (CRAG) - retrieve/grade/rewrite/generate deu async"]
         AGENT2 <--> CHECKPOINT["AsyncPostgresSaver (cùng Postgres DB)<br/>✅ psycopg_pool.AsyncConnectionPool(min=1,max=1), tự kết nối lại + asyncio.Lock cho lazy build (2026-09-27)"]
+        CHECKPOINT --> T_CKPT
     end
 ```
 
@@ -178,4 +184,8 @@ flowchart TD
 2. **Không có "1 câu SQL hybrid RRF duy nhất"** — dense và sparse là 2 câu SQL riêng chạy song song (`asyncio.gather`), RRF fusion làm ở tầng Python bằng hàm đã test sẵn từ Phase 1 (`reciprocal_rank_fusion()`), không viết lại thuật toán RRF bằng SQL.
 3. **"Parent-Child Retrieval thật sự" (mở rộng chunk ra cả parent section) chưa làm** — `hybrid_search()` hiện chỉ trả `parent_section_name` (qua `LEFT JOIN`) để hiển thị, chưa nạp toàn bộ text của parent section vào context. Đây là backlog Phase 3 ("small-to-big" retrieval).
 
-Checkpointer (`AsyncPostgresSaver`) và `paper_cards` (Phase 4) vẫn như dự kiến ban đầu — chưa làm, không phải khác đi.
+Checkpointer (`AsyncPostgresSaver`) **đã làm xong** (2026-09-27) đúng như dự kiến ban đầu — chỉ khác ở chỗ dùng pool 1 kết nối `psycopg` riêng thay vì 1 kết nối trần. `paper_cards` (Phase 4) vẫn chưa dùng.
+
+**Ngoài sơ đồ, còn 2 điểm cần nhớ:**
+- `DELETE /papers/{id}` xoá paper + file PDF; `sections`/`chunks`/`paper_cards` tự xoá theo nhờ `ON DELETE CASCADE` (bảng checkpoint thì không gắn FK tới `papers`, nên lịch sử chat của thread đó vẫn còn).
+- Code Phase 1 (`vector_store.py`, `bm25_store.py`, `hybrid_retriever.py`) đã bị xoá hẳn khỏi repo; hai sơ đồ lịch sử phía trên chỉ còn để tham khảo.
