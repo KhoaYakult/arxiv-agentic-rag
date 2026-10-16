@@ -5,7 +5,7 @@ Postgres (Supabase) repository layer - nguon su that duy nhat cho papers/
 sections/chunks, thay the 3 thu rai rac cua Phase 1 (data/papers_registry.json,
 ChromaDB qua app/indexing/vector_store.py, BM25 pickle qua
 app/indexing/bm25_store.py - ca 3 file/co che nay da bi xoa, xem
-project-memory/FIXED_BUGS.md va git history neu can xem lai).
+git history neu can xem lai).
 
 Truoc khi dung module nay: chay db/schema.sql qua Supabase SQL Editor.
 """
@@ -124,7 +124,7 @@ async def clear_stale_file_hash(paper_id: str) -> None:
     rieng theo status='ready'. Neu khong go truoc, insert row moi se dam vao
     asyncpg.exceptions.UniqueViolationError (bug tim thay khi review Task 3
     dedup: "fresh upload" fallback cho paper cu 'failed' bi crash 500 thay vi
-    thanh cong, xem project-memory/FIXED_BUGS.md).
+    thanh cong).
 
     Dieu kien `status != 'ready'` trong WHERE la an toan-kep (defense in
     depth): neu paper vua chuyen sang 'ready' dung luc ham nay chay (race
@@ -171,7 +171,7 @@ async def insert_sections(paper_id: str, sections: list[ParentSection]) -> dict[
     id (int, primary key trong Postgres)} de insert_chunks() dung lam FK.
 
     Day la lan dau ParentSection thuc su duoc luu lai (Phase 1 tao ra roi vut
-    di ngay - xem project-memory/FIXED_BUGS.md).
+    di ngay).
     """
     if not sections:
         return {}
@@ -252,7 +252,7 @@ async def insert_chunks(
 # HYBRID SEARCH - dense (pgvector) + sparse (Postgres FTS) + RRF
 #
 # reciprocal_rank_fusion() song o day (chuyen tu app/indexing/hybrid_retriever.py,
-# file da bi xoa cung Phase 1 - xem project-memory/FIXED_BUGS.md) vi day la noi
+# file da bi xoa cung Phase 1) vi day la noi
 # duy nhat con goi no. Ham khong quan tam nguon goc ranking (BM25 hay Postgres
 # FTS), chi can dict co key {chunk_id, dense_rank} hoac {chunk_id, bm25_rank}.
 # Giu nguyen ten key "bm25_rank" du gio la Postgres FTS (khong phai BM25 that) -

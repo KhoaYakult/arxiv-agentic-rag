@@ -30,7 +30,7 @@ Luong xu ly /ask:
 
 Phase 1 (ChromaDB + BM25 pickle, app/indexing/vector_store.py + bm25_store.py)
 da bi thay the hoan toan o day va sau do xoa het khoi repo (xem
-project-memory/FIXED_BUGS.md va git history neu can xem lai code cu).
+git history neu can xem lai code cu).
 """
 
 from __future__ import annotations
@@ -172,7 +172,7 @@ def _should_clear_stale_hash(existing: dict | None) -> bool:
     ghi row moi cung file_hash o nhanh fresh-upload ben duoi - neu khong
     upsert_paper() se nem asyncpg.exceptions.UniqueViolationError (bug tim
     thay khi review Task 3: 'fresh upload' fallback crash 500 thay vi thanh
-    cong, xem project-memory/FIXED_BUGS.md).
+    cong).
     """
     return existing is not None and not _should_reuse_by_hash(existing)
 
@@ -257,7 +257,7 @@ async def upload_paper(
     # ── Luu file PDF vao thu muc data/, dat ten theo paper_id (KHONG phai
     # ten file goc) - 2 paper_id khac nhau upload file trung ten se KHONG
     # con ghi de len nhau tren disk nhu truoc (bug that: da lam mat 1 file
-    # PDF mau that trong luc test tinh nang DELETE, xem project-memory/FIXED_BUGS.md #12) ──
+    # PDF mau that trong luc test tinh nang DELETE) ──
     pdf_path = settings.data_dir / f"{paper_id}.pdf"
     try:
         pdf_path.write_bytes(content)

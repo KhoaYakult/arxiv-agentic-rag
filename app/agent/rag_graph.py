@@ -10,7 +10,7 @@ FTS) thay HybridRetriever (ChromaDB + rank_bm25) cua Phase 1. Toan bo graph
 chuyen sang async vi asyncpg (thu vien Postgres) chi ho tro async - dung
 asyncio.run() chap va o 1 node duy nhat se lam vo pool connection giua cac
 lan goi (moi asyncio.run() tao 1 event loop moi, pool cache lai bi gan voi
-loop cu da dong). Xem project-memory/FIXED_BUGS.md.
+loop cu da dong).
 """
 
 import asyncio
@@ -212,8 +212,8 @@ async def _get_checkpointer():
 
     Khong bat except roi fallback im lang o day (khac ban SQLite cu) - neu
     DATABASE_URL sai/thieu hoac Postgres khong ket noi duoc, muon that bai
-    ro rang, khong muon lich su chat am tham bien mat nhu bug #7 (xem
-    project-memory/FIXED_BUGS.md) tung xay ra. Luu y: vi build lazy, loi chi
+    ro rang, khong muon lich su chat am tham bien mat nhu bug cu (SqliteSaver
+    thieu dependency, am tham roi ve MemorySaver) tung xay ra. Luu y: vi build lazy, loi chi
     lo ra o lan goi /ask DAU TIEN (khong phai luc khoi dong) - /health van
     xanh du DATABASE_URL cua checkpointer co van de.
     """

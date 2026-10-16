@@ -4,9 +4,9 @@ app/indexing/embeddings.py
 Embedding provider dang dung that trong pipeline (Postgres + pgvector).
 
 Phase 1 dung HuggingFaceAPIEmbeddings (all-MiniLM-L6-v2, 384-dim, khong
-phan biet query/document) - da bi xoa cung ChromaDB (xem
-project-memory/FIXED_BUGS.md). Gemini gemini-embedding-001 (768-dim qua MRL
-truncation) thay the hoan toan - xem docs/ROADMAP.md muc 1 de biet ly do chon.
+phan biet query/document) - da bi xoa cung ChromaDB.
+Gemini gemini-embedding-001 (768-dim qua MRL
+truncation) thay the hoan toan (embedding tot hon, free tier, phan biet query/document).
 """
 
 import sys
@@ -29,7 +29,7 @@ EMBEDDING_DIM = 768
 # LUONG DUOC EMBED trong 1 phut (khong phai so HTTP request) - gui 1 batch
 # 100 text trong 1 call van tinh la 100 don vi quota. Voi paper >100 chunk,
 # PHAI cho giua cac batch de tranh 429 RESOURCE_EXHAUSTED (da gap that khi
-# upload 1 paper 182 chunks - xem project-memory/FIXED_BUGS.md #11).
+# upload 1 paper 182 chunks).
 _GEMINI_FREE_TIER_BATCH = 100
 _GEMINI_FREE_TIER_COOLDOWN_SEC = 61
 

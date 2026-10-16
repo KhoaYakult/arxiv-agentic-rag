@@ -32,7 +32,7 @@ flowchart TD
 
 ## Status
 
-Mid-upgrade from MVP to a production-grade portfolio project. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the phased plan (current architecture decisions, known bugs already fixed, and what's planned next: Postgres+pgvector migration, eval harness, multi-paper querying, RAPTOR).
+Mid-upgrade from MVP to a production-grade portfolio project. Phase 1 (hardening) and Phase 2 (Supabase Postgres + pgvector, Gemini embeddings, Postgres FTS, Postgres-backed chat memory) are done. Planned next: eval harness (Recall@k, nDCG), multi-paper querying, RAPTOR, production polish (auth, rate limiting, streaming).
 
 ## Stack
 
@@ -90,6 +90,3 @@ CI (`.github/workflows/ci.yml`) runs both on every push/PR to `main`.
 - `app/llm/` — LLM provider factory (`llm_factory.py`) and prompt templates (`prompt_templates.py`)
 - `app/api/` — FastAPI app and routes
 - `streamlit_app.py` — frontend
-- `docs/ROADMAP.md` — upgrade plan and architecture decisions
-
-See [`CLAUDE.md`](CLAUDE.md) for a deeper architecture walkthrough (data flow, known gaps, conventions) aimed at contributors working on the codebase.
