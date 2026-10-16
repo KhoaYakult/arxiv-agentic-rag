@@ -228,3 +228,44 @@ class TestCreateChildChunksPageAwareness:
         chunks = create_child_chunks(sections, paper_id="p1", max_chars=800, overlap_chars=150)
         assert chunks[0].page_num is None
         assert chunks[1].page_num == 2
+
+
+class TestSplitParentSectionsPageRange:
+    MD = (
+        "<!-- page:1 -->\n"
+        "Tac gia va don vi nghien cuu cua bai bao nay, du dai de qua bo loc.\n\n"
+        "# Introduction\n"
+        "Noi dung phan gioi thieu nam tren trang mot va het o day thoi.\n\n"
+        "<!-- page:2 -->\n"
+        "Phan gioi thieu van con tiep tuc sang tan trang hai cua bai bao.\n\n"
+        "# Method\n"
+        "Phan phuong phap bat dau o trang hai va ket thuc o trang hai luon.\n\n"
+        "<!-- page:3 -->\n"
+        "# Results\n"
+        "Ket qua thuc nghiem nam hoan toan tren trang ba cua bai bao nay.\n"
+    )
+
+    def _by_name(self):
+        return {s.section_name: s for s in split_parent_sections(self.MD)}
+
+    def test_section_spanning_two_pages(self):
+        s = self._by_name()["Introduction"]
+        assert (s.page_start, s.page_end) == (1, 2)
+
+    def test_section_inside_one_page(self):
+        s = self._by_name()["Method"]
+        assert (s.page_start, s.page_end) == (2, 2)
+
+    def test_heading_right_after_marker_starts_on_that_page(self):
+        s = self._by_name()["Results"]
+        assert (s.page_start, s.page_end) == (3, 3)
+
+    def test_header_section_gets_first_page(self):
+        s = self._by_name()["Header"]
+        assert (s.page_start, s.page_end) == (1, 1)
+
+    def test_no_markers_means_none(self):
+        secs = split_parent_sections(
+            "# Introduction\nNoi dung khong co marker trang nao ca, du dai de qua bo loc.\n"
+        )
+        assert all(s.page_start is None and s.page_end is None for s in secs)

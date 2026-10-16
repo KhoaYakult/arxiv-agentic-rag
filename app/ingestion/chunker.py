@@ -29,6 +29,9 @@ class ParentSection:
     section_id: str
     section_name: str
     text: str
+    page_start: int | None = None  # Trang chứa ký tự đầu của section (None nếu tài liệu
+    page_end: int | None = None    # không có marker trang / nằm trước marker đầu tiên).
+                                   # page_end = trang chứa ký tự cuối của section.
 
 
 @dataclass
@@ -73,6 +76,7 @@ def _is_table_chunk(text: str) -> bool:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _PAGE_MARKER = re.compile(r"<!-- page:(\d+) -->\n?")
+_TRAILING_PAGE_MARKER = re.compile(r"<!-- page:\d+ -->\s*$")
 
 
 def _strip_page_markers(text: str) -> tuple[str, list[tuple[int, int]]]:
@@ -172,12 +176,31 @@ def split_parent_sections(markdown_text: str) -> list[ParentSection]:
 
     matches = list(heading_pattern.finditer(markdown_text))
 
+    # Vị trí marker "<!-- page:N -->" trong TOÀN BỘ markdown (chưa gỡ) -> map mỗi
+    # section sang trang bắt đầu/kết thúc của nó (page_start/page_end).
+    page_markers = [(m.start(), int(m.group(1))) for m in _PAGE_MARKER.finditer(markdown_text)]
+
+    def _pages(start: int, end: int) -> tuple[int | None, int | None]:
+        # Marker của trang kế tiếp thường nằm ở CUỐI section này (ngay trước heading
+        # sau) - bỏ nó đi, nếu không page_end bị đẩy lên 1 trang so với nội dung thật.
+        segment = markdown_text[start:end].rstrip()
+        while True:
+            trimmed = _TRAILING_PAGE_MARKER.sub("", segment).rstrip()
+            if trimmed == segment:
+                break
+            segment = trimmed
+        last_char = start + max(len(segment) - 1, 0)
+        return _page_at(page_markers, start), _page_at(page_markers, last_char)
+
     # Fallback nếu không tìm thấy tiêu đề nào
     if not matches:
+        p_start, p_end = _pages(0, len(markdown_text))
         return [ParentSection(
             section_id="sec_0",
             section_name="Full_Document",
-            text=markdown_text
+            text=markdown_text,
+            page_start=p_start,
+            page_end=p_end,
         )]
 
     sections: list[ParentSection] = []
@@ -186,10 +209,13 @@ def split_parent_sections(markdown_text: str) -> list[ParentSection]:
     if matches[0].start() > 0:
         header_text = markdown_text[:matches[0].start()].strip()
         if header_text:
+            p_start, p_end = _pages(0, matches[0].start())
             sections.append(ParentSection(
                 section_id="sec_0",
                 section_name="Header",
-                text=header_text
+                text=header_text,
+                page_start=p_start,
+                page_end=p_end,
             ))
 
     for i, match in enumerate(matches):
@@ -221,10 +247,13 @@ def split_parent_sections(markdown_text: str) -> list[ParentSection]:
         if len(clean_name) < 3 or not sec_text or len(sec_text) < 30:
             continue
 
+        p_start, p_end = _pages(start_idx, end_idx)
         sections.append(ParentSection(
             section_id=f"sec_{len(sections)}",
             section_name=clean_name or f"Section_{len(sections)}",
-            text=sec_text
+            text=sec_text,
+            page_start=p_start,
+            page_end=p_end,
         ))
 
     return sections

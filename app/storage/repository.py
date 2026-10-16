@@ -182,13 +182,15 @@ async def insert_sections(paper_id: str, sections: list[ParentSection]) -> dict[
         for sec in sections:
             pk = await conn.fetchval(
                 """
-                INSERT INTO sections (paper_id, section_id, name, text)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO sections (paper_id, section_id, name, text, page_start, page_end)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (paper_id, section_id) DO UPDATE SET
-                    name = EXCLUDED.name, text = EXCLUDED.text
+                    name = EXCLUDED.name, text = EXCLUDED.text,
+                    page_start = EXCLUDED.page_start, page_end = EXCLUDED.page_end
                 RETURNING id
                 """,
                 paper_id, sec.section_id, sec.section_name, sec.text,
+                sec.page_start, sec.page_end,
             )
             section_pk_map[sec.section_id] = pk
     return section_pk_map
