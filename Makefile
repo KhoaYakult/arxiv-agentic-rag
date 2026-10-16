@@ -1,4 +1,4 @@
-.PHONY: install dev-install run ui test lint fmt docker-build docker-run
+.PHONY: install dev-install run ui test test-integration lint fmt docker-build docker-run
 
 install:
 	pip install -r requirements.txt
@@ -14,6 +14,11 @@ ui:
 
 test:
 	python -m pytest tests/ -v
+
+# Integration test can Postgres+pgvector rieng (KHONG dung Supabase that).
+# Bat container tam: docker run -d --rm --name pgtest -e POSTGRES_PASSWORD=postgres -p 55432:5432 pgvector/pgvector:pg16
+test-integration:
+	TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/postgres python -m pytest tests/integration -v
 
 lint:
 	ruff check .

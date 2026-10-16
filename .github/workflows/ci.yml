@@ -9,6 +9,25 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+
+    # Postgres + pgvector dung rieng cho integration test (tests/integration/) -
+    # KHONG phai Supabase that. Container nay bi huy sau moi lan chay CI.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
     steps:
       - uses: actions/checkout@v4
 
