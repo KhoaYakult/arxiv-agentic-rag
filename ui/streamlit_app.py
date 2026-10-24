@@ -240,7 +240,10 @@ header[data-testid="stHeader"] { background: transparent; }
     font-size: 0.9rem;
     line-height: 1.6;
 }
-.msg-ai {
+/* Bong bong cua agent la st.container(key="msg_ai_<i>") -> Streamlit gan class
+   st-key-msg_ai_<i>; noi dung render bang st.markdown (co markdown, Streamlit tu
+   chan HTML) thay vi nhung chuoi da escape vao <div> (mat het **dam**, danh sach). */
+.msg-ai, [class*="st-key-msg_ai_"] {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius) var(--radius) var(--radius) 4px;
@@ -251,6 +254,8 @@ header[data-testid="stHeader"] { background: transparent; }
     font-size: 0.9rem;
     line-height: 1.7;
 }
+[class*="st-key-msg_ai_"] { gap: 0.25rem; }
+[class*="st-key-msg_ai_"] p, [class*="st-key-msg_ai_"] li { font-size: 0.9rem; line-height: 1.7; }
 .msg-meta {
     font-size: 0.72rem;
     color: var(--text-muted);
@@ -712,7 +717,7 @@ if not st.session_state.chat_history:
     </div>
     """, unsafe_allow_html=True)
 else:
-    for msg in st.session_state.chat_history:
+    for msg_idx, msg in enumerate(st.session_state.chat_history):
         if msg["role"] == "user":
             st.markdown(f"""
             <div class="msg-user">
@@ -731,14 +736,15 @@ else:
             if msg.get("rewrite_count", 0) > 0:
                 rewrite_badge = f'<span class="badge badge-blue">↺ Viết lại x{esc(msg["rewrite_count"])}</span>'
 
-            st.markdown(f"""
-            <div class="msg-ai">
+            with st.container(key=f"msg_ai_{msg_idx}"):
+                st.markdown(f"""
                 <div class="msg-meta">
                     🤖 Agent &nbsp;·&nbsp; {esc(msg['time'])}
                     &nbsp; {grade_badge} &nbsp; {rewrite_badge}
-                </div>
-                {esc_multiline(msg['content'])}
-            </div>""", unsafe_allow_html=True)
+                </div>""", unsafe_allow_html=True)
+                # XSS: KHONG unsafe_allow_html - Streamlit hien HTML tho trong cau tra
+                # loi duoi dang chu, chi render markdown (dam, danh sach, code, cong thuc).
+                st.markdown(msg["content"])
 
             # ── Nguon trich dan ──
             sources = msg.get("sources", [])
