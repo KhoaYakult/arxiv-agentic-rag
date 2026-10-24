@@ -169,3 +169,22 @@ class TestFileHashDedup:
             return await repository.get_paper_by_hash("H")
 
         assert run(scenario)["paper_id"] == "a"
+
+
+class TestDeployHelpers:
+    def test_reupload_resets_created_at_so_failed_paper_is_not_instantly_stuck(self):
+        async def scenario():
+            await repository.upsert_paper("p1", "T", "p1.pdf")
+            pool = await repository.get_pool()
+            await pool.execute("UPDATE papers SET status='failed', created_at = now() - interval '2 hours'")
+            await repository.upsert_paper("p1", "T", "p1.pdf", status="processing")
+            return await pool.fetchval("SELECT now() - created_at < interval '1 minute' FROM papers")
+
+        assert run(scenario) is True
+
+    def test_ping_runs_select_1(self):
+        async def scenario():
+            await repository.ping()
+            return True
+
+        assert run(scenario) is True

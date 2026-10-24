@@ -43,6 +43,17 @@ class AgentState(TypedDict):
 
 
 MAX_REWRITES = 2
+
+
+def _text(response) -> str:
+    """
+    Lay noi dung chu cua AIMessage dang str. Gemini 3.x tra `content` la LIST cac
+    block ({'type': 'text', 'text': ..., 'extras': {...}}) thay vi str, nen
+    `response.content.lower()` / luu thang `content` vao answer se vo (AttributeError
+    hoac AskResponse.answer khong phai str). `.text` gop cac block text lai
+    (voi Groq content la str thuong thi `.text` == `.content`).
+    """
+    return str(response.text)
 FIRST_STAGE_K = 20  # so ung vien lay tu hybrid_search truoc khi rerank con 5
 
 
@@ -53,13 +64,15 @@ FIRST_STAGE_K = 20  # so ung vien lay tu hybrid_search truoc khi rerank con 5
 async def retrieve_node(state: AgentState) -> dict:
     """Tim Top-5 chunks: repository.hybrid_search() (pgvector + FTS) -> rerank."""
     from app.indexing.embeddings import get_embedding_provider
-    from app.indexing.reranker import RerankerManager
+    from app.indexing.reranker import get_reranker
     from app.storage import repository
 
     print(f"\n[NODE] retrieve -- {state['question'][:70]}", flush=True)
 
     provider = get_embedding_provider()
-    query_embedding = provider.embed_query(state["question"])
+    # embed_query la ham SYNC (goi HTTP Gemini, co the retry/sleep) - chay trong
+    # thread rieng de khong dong bang event loop cua ca server.
+    query_embedding = await asyncio.to_thread(provider.embed_query, state["question"])
 
     candidates = await repository.hybrid_search(
         paper_id=state["paper_id"],
@@ -68,8 +81,11 @@ async def retrieve_node(state: AgentState) -> dict:
         top_k=FIRST_STAGE_K,
     )
 
-    reranker = RerankerManager()
-    chunks = reranker.rerank(state["question"], candidates, top_k=5)
+    # rerank cung SYNC (Cohere HTTP hoac CrossEncoder.predict tren CPU) -> to_thread.
+    # get_reranker() la singleton: khong tao lai manager/client moi lan retrieve.
+    chunks = await asyncio.to_thread(
+        get_reranker().rerank, state["question"], candidates, 5
+    )
 
     print(f"[NODE] retrieve -- Tim duoc {len(chunks)} chunks.", flush=True)
     return {"retrieved_chunks": chunks}
@@ -89,7 +105,7 @@ async def grade_node(state: AgentState) -> dict:
     ])
     chain = ChatPromptTemplate.from_template(GRADE_DOCS_TEMPLATE) | get_llm()
     response = await chain.ainvoke({"context": context, "question": state["question"]})
-    grade = "yes" if "yes" in response.content.lower().strip() else "no"
+    grade = "yes" if "yes" in _text(response).lower().strip() else "no"
     print(f"[NODE] grade -- {grade.upper()} (rewrite={state['rewrite_count']})", flush=True)
     return {"grade": grade}
 
@@ -104,7 +120,7 @@ async def rewrite_node(state: AgentState) -> dict:
     print(f"[NODE] rewrite -- lan {state['rewrite_count'] + 1}", flush=True)
     chain = ChatPromptTemplate.from_template(REWRITE_QUERY_TEMPLATE) | get_llm()
     response = await chain.ainvoke({"question": state["question"]})
-    new_q = response.content.strip()
+    new_q = _text(response).strip()
     print(f"[NODE] rewrite -- moi: {new_q}", flush=True)
     return {"question": new_q, "rewrite_count": state["rewrite_count"] + 1}
 
@@ -139,7 +155,7 @@ async def generate_node(state: AgentState) -> dict:
         "question": state["question"],
     })
 
-    answer = response.content
+    answer = _text(response)
     print("[NODE] generate -- hoan tat!", flush=True)
 
     # add_messages tu dong NOI THEM vao lich su cu

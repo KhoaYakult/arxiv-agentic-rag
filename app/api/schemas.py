@@ -51,6 +51,16 @@ class UploadResponse(BaseModel):
     )
 
 
+class ArxivImportRequest(BaseModel):
+    """Body cua POST /papers/arxiv - server tu tai PDF tu arxiv.org (khong qua body
+    request, nen khong vuong gioi han 4.5 MB cua Vercel)."""
+
+    arxiv_id: str = Field(
+        description="ArXiv ID dang YYMM.NNNNN, co the kem phien ban (vd '2401.15884' hoac '2401.15884v2').",
+        examples=["2401.15884"],
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # ASK — Goi Agent de tra loi cau hoi
 # ──────────────────────────────────────────────────────────────────────────────
@@ -153,3 +163,10 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "error"] = Field(description="Trang thai server.")
     version: str = Field(default="1.0.0", description="Phien ban API.")
     message: str = Field(description="Thong bao.")
+
+
+class HealthDbResponse(BaseModel):
+    """Ket qua GET /health/db - kiem tra ket noi Postgres that (SELECT 1)."""
+
+    status: Literal["ok", "error"] = Field(description="Trang thai tong.")
+    db: Literal["ok", "unreachable"] = Field(description="Trang thai ket noi Postgres.")

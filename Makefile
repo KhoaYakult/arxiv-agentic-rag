@@ -4,7 +4,7 @@ install:
 	pip install -r requirements.txt
 
 dev-install: install
-	pip install ruff pytest pre-commit
+	pip install -r requirements-dev.txt pre-commit
 
 run:
 	uvicorn app.api.main:app --reload --port 8000

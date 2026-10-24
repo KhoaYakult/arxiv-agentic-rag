@@ -4,8 +4,15 @@ version = "0.1.0"
 description = "Corrective-RAG question answering over ArXiv PDF papers"
 requires-python = ">=3.11"
 
-# Runtime deps stay in requirements.txt (used directly by Dockerfile/pip).
+# Runtime deps stay in requirements.txt (used directly by Dockerfile/pip/Vercel).
+# Dev deps (pytest, ruff, sentence-transformers) o requirements-dev.txt.
 # This file only holds tool config + dev tooling.
+
+# Vercel: FastAPI instance `app` nam o app/api/main.py (khong phai vi tri mac dinh
+# app.py/main.py/index.py nen phai khai bao). Key trong vercel.json `functions`
+# phai la file tuong ung: "app/api/main.py".
+[tool.vercel]
+entrypoint = "app.api.main:app"
 
 [dependency-groups]
 dev = [

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app/api/main.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{tests/**,eval/**,data/**,docs/**,ui/**,cache/**,db/**,reports/**,research_notes/**,project-memory/**,.venv/**,.git/**,.github/**,.claude/**,.superpowers/**,.pytest_cache/**,.ruff_cache/**,**/__pycache__/**,streamlit_app.py,.env,.env.*,*.md}"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/v1/health/db",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}

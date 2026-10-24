@@ -1,7 +1,11 @@
 # Pinned to versions installed + tested in this repo's .venv, last updated
-# 2026-09-27 (pytest suite green, all app modules import cleanly, LangGraph agent
+# 2026-10-24 (pytest suite green, all app modules import cleanly, LangGraph agent
 # compiles). Regenerate by installing into a fresh venv and updating the
 # versions below - do not hand-edit version numbers without re-testing.
+#
+# File nay la RUNTIME SLIM cho API (Vercel + Docker cai file nay). KHONG co
+# sentence-transformers (keo theo torch ~500 MB, vuot gioi han bundle Vercel),
+# streamlit, pytest, ruff. Dev local: pip install -r requirements-dev.txt.
 
 # Core Framework & Settings
 pydantic==2.13.5
@@ -13,8 +17,7 @@ pymupdf==1.28.2
 pymupdf4llm==1.28.2
 langchain-text-splitters==1.1.2
 
-# Embedding & Vector Database
-sentence-transformers==6.0.1
+# Rerank (Cohere API; CrossEncoder local chi co trong requirements-dev.txt)
 cohere==7.1.1
 
 # LLM & Agentic Orchestration
@@ -33,10 +36,8 @@ asyncpg==0.31.0
 pgvector==0.5.0
 tenacity==9.1.4
 
-# API & Web UI
+# API
 fastapi==0.141.1
 uvicorn==0.52.4
-streamlit==1.63.0
-
-# Testing
-pytest==9.1.1
+python-multipart==0.0.32   # bat buoc cho File()/Form() cua /upload
+httpx==0.28.1              # /papers/arxiv: tai PDF + metadata tu arxiv.org

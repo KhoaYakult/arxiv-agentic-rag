@@ -1,0 +1,12 @@
+# Dependencies cho DEV LOCAL: runtime (requirements.txt) + thu thua chi dung khi
+# phat trien. Vercel/Docker KHONG cai file nay.
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+
+# CrossEncoder local - fallback reranker khi khong co COHERE_API_KEY
+# (keo theo torch ~500 MB, nen khong dua vao requirements.txt)
+sentence-transformers==6.0.1
+
+# Testing & lint
+pytest==9.1.1
+ruff==0.16.7

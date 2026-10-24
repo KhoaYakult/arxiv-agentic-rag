@@ -31,12 +31,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.config import settings
 
 # ──────────────────────────────────────────────────────────────────────────────
 # LIFESPAN — dong connection pool Postgres luc app shutdown
 # get_pool() trong app/storage/repository.py la lazy singleton (tao 1 lan,
 # tai su dung xuyen suot vong doi process) - khong co lifespan thi pool
 # khong bao gio duoc dong tuong minh khi Uvicorn/Railway tat process.
+# Tren Vercel phan cleanup sau `yield` chi duoc toi da 500 ms sau SIGTERM - dong
+# pool la thao tac nhanh nen van vua; ket noi con sot se bi Postgres tu dong.
 # ──────────────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -77,18 +80,17 @@ app = FastAPI(
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CAU HINH CORS
-# Cho phep Streamlit (localhost:8501) goi API nay tu trinh duyet.
+# Danh sach origin lay tu settings.allowed_origins (env ALLOWED_ORIGINS, phan tach
+# bang dau phay) - mac dinh chi Streamlit local. Khi deploy: them URL Streamlit
+# Cloud that (vd https://ten-app.streamlit.app), KHONG dung "*".
+# allow_credentials=False: API xac thuc bang header X-API-Key, khong dung cookie,
+# nen khong can credentials (va "*" + credentials la to hop khong an toan).
 # ──────────────────────────────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8501",   # Streamlit local
-        "http://127.0.0.1:8501",
-        "https://*.streamlit.app", # Streamlit Cloud (khi deploy)
-        "*",                       # Mo rong cho dev (nen thu hep khi len prod)
-    ],
-    allow_credentials=True,
+    allow_origins=settings.allowed_origins_list,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

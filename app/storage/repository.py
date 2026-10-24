@@ -60,6 +60,13 @@ async def get_pool() -> asyncpg.Pool:
     return _pool
 
 
+async def ping() -> None:
+    """Chay `SELECT 1` qua pool - dung cho GET /health/db (va cron giu Supabase free
+    khong bi auto-pause sau 7 ngay khong hoat dong). Nem exception neu DB khong toi duoc."""
+    pool = await get_pool()
+    await pool.fetchval("SELECT 1")
+
+
 async def close_pool() -> None:
     """Dong pool luc app shutdown (goi trong FastAPI lifespan)."""
     global _pool
@@ -80,7 +87,11 @@ async def upsert_paper(
     num_pages: int | None = None,
     status: str = "processing",
 ) -> None:
-    """Tao moi hoac cap nhat 1 paper (upsert de ho tro re-upload cung paper_id)."""
+    """Tao moi hoac cap nhat 1 paper (upsert de ho tro re-upload cung paper_id).
+
+    created_at duoc dat lai = now() khi re-upload: GET /papers/{id}/status dung
+    created_at de phat hien job 'processing' bi ket >15 phut - neu giu created_at
+    cu thi re-upload 1 paper 'failed' cu se bi danh dau failed ngay lap tuc."""
     pool = await get_pool()
     await pool.execute(
         """
@@ -91,7 +102,8 @@ async def upsert_paper(
             filename = EXCLUDED.filename,
             file_hash = EXCLUDED.file_hash,
             num_pages = EXCLUDED.num_pages,
-            status = EXCLUDED.status
+            status = EXCLUDED.status,
+            created_at = now()
         """,
         paper_id, title, filename, file_hash, num_pages, status,
     )

@@ -4,12 +4,16 @@ app/indexing/reranker.py
 Module Re-ranking (Xếp hạng lại) giai đoạn 2 của Hybrid Retrieval.
 Nhận vào Top-20 kết quả từ Hybrid Search, trả về Top-5 chính xác nhất.
 
-Hỗ trợ 2 chế độ tự động:
+Hỗ trợ 3 chế độ tự động:
   - Cohere Rerank API  : Nếu COHERE_API_KEY được cấu hình trong .env
   - Local CrossEncoder : Fallback offline dùng cross-encoder/ms-marco-MiniLM-L-6-v2
-                         (~85MB, tối ưu chạy trên CPU i3)
+                         (~85MB, tối ưu chạy trên CPU i3) - cần sentence-transformers
+                         (chỉ có trong requirements-dev.txt)
+  - Disabled           : Không có Cohere key VÀ không cài sentence-transformers
+                         (vd bản deploy Vercel slim) -> trả top_k đầu theo thứ tự RRF
 """
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -24,11 +28,21 @@ from app.config import settings
 # RERANKER MANAGER
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _local_model_available() -> bool:
+    """True neu import duoc sentence_transformers (khong import that - chi do tim spec,
+    tranh keo torch vao RAM khi chi hoi 'co hay khong')."""
+    try:
+        return importlib.util.find_spec("sentence_transformers") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 class RerankerManager:
     """
-    Quản lý việc Re-ranking kết quả tìm kiếm theo 2 chế độ:
-      - "cohere" : Dùng Cohere Rerank API (yêu cầu COHERE_API_KEY)
-      - "local"  : Dùng CrossEncoder offline (ms-marco-MiniLM-L-6-v2)
+    Quản lý việc Re-ranking kết quả tìm kiếm theo 3 chế độ:
+      - "cohere"   : Dùng Cohere Rerank API (yêu cầu COHERE_API_KEY)
+      - "local"    : Dùng CrossEncoder offline (ms-marco-MiniLM-L-6-v2)
+      - "disabled" : Không có model nào -> giữ nguyên thứ tự RRF, cắt top_k
     Tự động lựa chọn chế độ dựa trên cấu hình trong .env.
     """
 
@@ -37,10 +51,19 @@ class RerankerManager:
 
     def __init__(self):
         self._cross_encoder = None  # Lazy load: chỉ khởi tạo khi cần dùng lần đầu
+        self._cohere_client = None  # Lazy: tạo 1 lần, tái sử dụng (giữ connection pool httpx)
 
         if settings.cohere_api_key:
             self.mode = "cohere"
             print("[INFO] Reranker mode: Cohere API", flush=True)
+        elif not _local_model_available():
+            self.mode = "disabled"
+            print(
+                "[WARN] Reranking DISABLED: khong co COHERE_API_KEY va khong cai "
+                "sentence-transformers - tra ve top_k theo thu tu RRF, chat luong "
+                "retrieval giam. Dat COHERE_API_KEY de bat lai.",
+                flush=True,
+            )
         else:
             self.mode = "local"
             print(f"[INFO] Reranker mode: Local CrossEncoder ({self.LOCAL_CROSS_ENCODER_MODEL})", flush=True)
@@ -86,8 +109,22 @@ class RerankerManager:
 
         if self.mode == "cohere":
             return self._rerank_cohere(query, candidates, top_k)
-        else:
-            return self._rerank_local(query, candidates, top_k)
+        if self.mode == "disabled":
+            return self._rerank_passthrough(candidates, top_k)
+        return self._rerank_local(query, candidates, top_k)
+
+    def _rerank_passthrough(self, candidates: list[dict], top_k: int) -> list[dict]:
+        """
+        Khong co model rerank: giu nguyen thu tu RRF (candidates da duoc sap theo
+        do lien quan giam dan boi hybrid_search), chi them rerank_rank. Khong co
+        rerank_score vi khong co diem that su de bao cao.
+        """
+        results = []
+        for rank, candidate in enumerate(candidates[:top_k], 1):
+            item = candidate.copy()
+            item["rerank_rank"] = rank
+            results.append(item)
+        return results
 
     def _rerank_local(
         self, query: str, candidates: list[dict], top_k: int
@@ -134,11 +171,16 @@ class RerankerManager:
             import cohere
         except ImportError:
             print("[ERROR] Thu vien 'cohere' chua duoc cai dat. Chay: pip install cohere", flush=True)
+            if not _local_model_available():
+                print("[WARN] Khong co CrossEncoder local - giu thu tu RRF.", flush=True)
+                return self._rerank_passthrough(candidates, top_k)
             print("[INFO] Chuyen sang Local CrossEncoder...", flush=True)
             return self._rerank_local(query, candidates, top_k)
 
         print(f"[INFO] Cohere Rerank API dang cham diem {len(candidates)} candidates...", flush=True)
-        client = cohere.ClientV2(api_key=settings.cohere_api_key)
+        if self._cohere_client is None:
+            self._cohere_client = cohere.ClientV2(api_key=settings.cohere_api_key)
+        client = self._cohere_client
 
         documents = [c["text"][:2048] for c in candidates]  # Cohere giới hạn độ dài text
 
@@ -157,3 +199,19 @@ class RerankerManager:
             results.append(item)
 
         return results
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SINGLETON - dung chung cho moi request (khong tao lai manager/Cohere client/
+# CrossEncoder moi lan retrieve)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_reranker: RerankerManager | None = None
+
+
+def get_reranker() -> RerankerManager:
+    """Lazy module-level singleton cua RerankerManager."""
+    global _reranker
+    if _reranker is None:
+        _reranker = RerankerManager()
+    return _reranker

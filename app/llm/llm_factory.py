@@ -130,12 +130,12 @@ def _build_llm(provider: str, temperature: float, max_tokens: int):
             )
 
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
+            model=settings.gemini_model_name,
             google_api_key=settings.gemini_api_key,
             temperature=temperature,
             max_output_tokens=max_tokens,
         )
-        print("[SUCCESS] LLM san sang: Gemini/gemini-2.0-flash", flush=True)
+        print(f"[SUCCESS] LLM san sang: Gemini/{settings.gemini_model_name}", flush=True)
         return llm
 
     # ── OLLAMA LOCAL ──

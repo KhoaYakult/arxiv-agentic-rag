@@ -43,7 +43,7 @@ Mid-upgrade from MVP to a production-grade portfolio project. Phase 1 (hardening
 - **LLM**: Groq (primary) with automatic runtime fallback to Gemini
 - **Backend**: FastAPI
 - **Frontend**: Streamlit
-- **Deploy**: Railway (API) + Streamlit Cloud (UI)
+- **Deploy**: Vercel (API) + Streamlit Community Cloud (UI)
 
 ## Setup
 
@@ -64,6 +64,30 @@ streamlit run streamlit_app.py
 ```
 
 Or with the Makefile: `make run`, `make ui`.
+
+## Deploy
+
+**API on Vercel (Hobby plan)** - the FastAPI app is deployed as a single Python function.
+
+1. Import the GitHub repo in Vercel. No framework preset or build command needed: `pyproject.toml` (`[tool.vercel] entrypoint`) and `vercel.json` (300 s `maxDuration`, `excludeFiles`, cron) already configure everything. `.python-version` pins Python 3.12 and Vercel installs `requirements.txt` (the slim runtime set, no torch).
+2. Set these environment variables (Project -> Settings -> Environment Variables):
+   - `DATABASE_URL` - Supabase Session pooler URI
+   - `GEMINI_API_KEY` (embeddings + LLM), optionally `GROQ_API_KEY`
+   - `COHERE_API_KEY` - strongly recommended: without it (and without `sentence-transformers`, which is not installed on Vercel) reranking is disabled and chunks keep their RRF order
+   - `APP_API_KEY` - when set, every `/api/v1` route except `/health` and `/health/db` requires header `X-API-Key: <value>`
+   - `ALLOWED_ORIGINS` - comma-separated; add the Streamlit Cloud URL (e.g. `https://your-app.streamlit.app`)
+   - optional: `GEMINI_MODEL_NAME`, `MAX_UPLOAD_MB`
+3. The cron in `vercel.json` calls `GET /api/v1/health/db` once a day so Supabase free does not auto-pause after 7 idle days (cron runs on production deployments only).
+
+Limits to know about:
+- A request is cut off after 300 s (`maxDuration`); a paper whose indexing is killed stays `processing` and is reported as `failed` by `GET /api/v1/papers/{id}/status` after 15 minutes.
+- Request bodies are capped at 4.5 MB by Vercel, so `POST /api/v1/upload` rejects files over 4 MB (`MAX_UPLOAD_MB`, HTTP 413). For arXiv papers use `POST /api/v1/papers/arxiv` with `{"arxiv_id": "2401.15884"}`: the server downloads the PDF itself.
+- The filesystem is read-only except `/tmp` (data and caches go to `/tmp`, which does not survive across instances); papers live in Postgres, not on disk.
+- Gemini free tier allows 100 embeddings/min and 1000/day; indexing jobs are serialized per process to stay inside it.
+
+**UI on Streamlit Community Cloud** - create an app from this repo pointing at the Streamlit entry file under `ui/`, and set the secret `API_BASE` to the Vercel URL (if `APP_API_KEY` is set, the UI must send it as `X-API-Key`; see the `ui/` docs for the secret name).
+
+For local development install `requirements-dev.txt` (adds `sentence-transformers` for the local CrossEncoder fallback, `pytest`, `ruff`).
 
 ## Docker
 
