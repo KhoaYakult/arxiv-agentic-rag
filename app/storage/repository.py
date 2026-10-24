@@ -335,13 +335,24 @@ _DENSE_SEARCH_SQL = """
     LIMIT $3
 """
 
+# Sparse = OR cua cac lexeme trong cau hoi (khong phai AND nhu websearch_to_tsquery):
+# cau hoi tu nhien dai 15-20 tu, AND tat ca -> 0 ket qua tren 21/21 golden question
+# (xem eval/results/2026-10-24_baseline.md). plainto_tsquery() da stem + bo stopword
+# + khong bao gio loi cu phap voi ky tu la (khac to_tsquery); doi toan tu `&` -> `|`
+# tren dang text cua tsquery (lexeme khong chua khoang trang nen ' & ' chi la toan tu).
+# Cau hoi toan stopword -> tsquery rong -> `@@` khong khop gi (chi NOTICE, khong loi).
+# ts_rank_cd van xep chunk khop nhieu/hiem tu len truoc.
 _SPARSE_SEARCH_SQL = """
+    WITH q AS (
+        SELECT replace(plainto_tsquery('english', $2)::text, ' & ', ' | ')::tsquery AS tsq
+    )
     SELECT c.chunk_id, c.paper_id, c.text, c.is_table, c.page_num,
            COALESCE(s.name, 'Unknown section') AS parent_section_name
     FROM chunks c
+    CROSS JOIN q
     LEFT JOIN sections s ON s.id = c.section_pk
-    WHERE c.paper_id = $1 AND c.fts @@ websearch_to_tsquery('english', $2)
-    ORDER BY ts_rank_cd(c.fts, websearch_to_tsquery('english', $2)) DESC
+    WHERE c.paper_id = $1 AND c.fts @@ q.tsq
+    ORDER BY ts_rank_cd(c.fts, q.tsq) DESC
     LIMIT $3
 """
 
@@ -354,7 +365,10 @@ async def dense_search(paper_id: str, query_embedding: list[float], top_k: int =
 
 
 async def sparse_search(paper_id: str, query_text: str, top_k: int = 20) -> list[dict]:
-    """Tim theo tu khoa bang Postgres full-text search (thay `rank_bm25` cua Phase 1)."""
+    """Tim theo tu khoa bang Postgres full-text search (thay `rank_bm25` cua Phase 1).
+    Semantics OR tren cac lexeme cua cau hoi (xem _SPARSE_SEARCH_SQL)."""
+    if not query_text.strip():
+        return []
     pool = await get_pool()
     rows = await pool.fetch(_SPARSE_SEARCH_SQL, paper_id, query_text, top_k)
     return [{**dict(r), "bm25_rank": i} for i, r in enumerate(rows, start=1)]

@@ -114,6 +114,57 @@ class TestHybridSearch:
         assert {r["paper_id"] for r in results} == {"p1"}
 
 
+class TestSparseSearchOrSemantics:
+    """Sparse dùng OR trên lexeme của câu hỏi (trước đây AND -> 0 kết quả với câu hỏi dài)."""
+
+    def test_natural_language_question_matches_chunk_that_has_only_some_terms(self):
+        async def scenario():
+            await seed_ready_paper()
+            chunks = [
+                make_chunk(0, "Transformer base model reaches 27.3 BLEU on English-German translation"),
+                make_chunk(1, "completely unrelated cooking recipe with garlic"),
+            ]
+            await repository.insert_chunks("p1", chunks, [vec(0), vec(1)], {})
+            q = "What BLEU score does the base Transformer reach on the WMT 2014 table?"
+            return await repository.sparse_search("p1", q)
+
+        results = run(scenario)
+        # Cũ: websearch_to_tsquery AND hết "wmt", "2014", "score", "table"... -> []
+        assert [r["chunk_id"] for r in results] == ["p1_chk_0"]
+        assert results[0]["bm25_rank"] == 1
+
+    def test_chunk_matching_more_terms_ranks_first(self):
+        async def scenario():
+            await seed_ready_paper()
+            chunks = [
+                make_chunk(0, "attention only"),
+                make_chunk(1, "scaled dot product attention softmax"),
+            ]
+            await repository.insert_chunks("p1", chunks, [vec(0), vec(1)], {})
+            return await repository.sparse_search("p1", "why scaled dot product attention?")
+
+        assert [r["chunk_id"] for r in run(scenario)][0] == "p1_chk_1"
+
+    def test_question_without_lexemes_returns_empty_without_error(self):
+        async def scenario():
+            await seed_ready_paper()
+            await repository.insert_chunks("p1", [make_chunk(0, "some text")], [vec(0)], {})
+            return [
+                await repository.sparse_search("p1", q)
+                for q in ("what is the of", "", "   ", "?!&|:*()", "'; DROP TABLE chunks;--")
+            ]
+
+        assert run(scenario) == [[], [], [], [], []]
+
+    def test_special_characters_in_question_do_not_break_the_query(self):
+        async def scenario():
+            await seed_ready_paper()
+            await repository.insert_chunks("p1", [make_chunk(0, "see http://a.com/x for attention")], [vec(0)], {})
+            return await repository.sparse_search("p1", "attention's http://a.com/x?b=1&c=2 (what) !not")
+
+        assert [r["chunk_id"] for r in run(scenario)] == ["p1_chk_0"]
+
+
 class TestPaperLifecycle:
     def test_list_papers_only_returns_ready(self):
         async def scenario():

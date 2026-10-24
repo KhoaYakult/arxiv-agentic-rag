@@ -165,7 +165,7 @@ class RerankerManager:
     ) -> list[dict]:
         """
         Re-rank qua Cohere Rerank API. Yêu cầu kết nối internet và COHERE_API_KEY.
-        Hỗ trợ model mới nhất: rerank-english-v3.0
+        Model lay tu settings.cohere_rerank_model (mac dinh rerank-v3.5, da ngon ngu).
         """
         try:
             import cohere
@@ -185,7 +185,7 @@ class RerankerManager:
         documents = [c["text"][:2048] for c in candidates]  # Cohere giới hạn độ dài text
 
         response = client.rerank(
-            model="rerank-english-v3.0",
+            model=settings.cohere_rerank_model,
             query=query,
             documents=documents,
             top_n=top_k,

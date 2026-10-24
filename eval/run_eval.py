@@ -270,8 +270,8 @@ def build_report(
             rows.append([c] + [_fmt(agg[k]) for k in keys] + [f"{results[c][mode]['empty']}/{len(items)}"])
         md += [_table(header, rows), ""]
     md.append(
-        "`0 ket qua` = so cau hoi ma config tra ve danh sach rong (vd sparse: "
-        "`websearch_to_tsquery` AND tat ca tu khoa, cau hoi dai/tieng Viet de khong khop gi)."
+        "`0 ket qua` = so cau hoi ma config tra ve danh sach rong (vd sparse ban cu dung "
+        "`websearch_to_tsquery` AND tat ca tu khoa -> cau hoi dai khong khop gi)."
     )
     md.append("")
 

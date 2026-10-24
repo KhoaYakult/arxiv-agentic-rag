@@ -50,6 +50,10 @@ class Settings(BaseSettings):
 
     # ── API KEYS ──
     cohere_api_key: str = ""
+    # Model Cohere Rerank (env COHERE_RERANK_MODEL ghi de). "rerank-v3.5" la ban da ngon ngu
+    # (co tieng Viet); "rerank-english-v3.0" chi tot cho tieng Anh. Eval 2026-10-24:
+    # Hit@5 0.905 vs 0.619, tieng Viet 0.833 vs 0.333 - xem eval/results/.
+    cohere_rerank_model: str = "rerank-v3.5"
     gemini_api_key: str = ""
     groq_api_key: str = ""
     hf_token: str = ""
