@@ -149,9 +149,11 @@ html, body, [class*="css"] {
 }
 
 /* ── Hide default Streamlit elements ── */
-/* Chi an menu/toolbar/footer - KHONG an ca header: tu Streamlit 1.4x nut mo lai
-   thanh ben (khi bi thu gon) nam trong header, an header la mat luon nut nay. */
-#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] { visibility: hidden; }
+/* Chi an menu/nut Deploy/footer - KHONG an header hay stToolbar: tu Streamlit 1.63
+   nut mo lai sidebar (stExpandSidebarButton) nam ben trong stHeader > stToolbar,
+   an mot trong hai la mat nut, sidebar thu gon roi thi khong mo lai duoc. */
+#MainMenu, footer, [data-testid="stToolbarActions"], [data-testid="stAppDeployButton"], [data-testid="stDecoration"] { visibility: hidden; }
+[data-testid="stExpandSidebarButton"] { visibility: visible !important; }
 header[data-testid="stHeader"] { background: transparent; }
 .block-container { padding: 1.5rem 2rem 1rem; max-width: 100%; }
 

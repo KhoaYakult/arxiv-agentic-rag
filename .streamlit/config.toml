@@ -1,0 +1,14 @@
+# Theme goc cua Streamlit phai la dark de khop voi CSS tuy chinh trong
+# ui/streamlit_app.py (bang mau --bg-primary, --accent...). Neu de mac dinh
+# (light / theo he dieu hanh), vung chinh bi nen trang, tieu de gan nhu vo hinh.
+[theme]
+base = "dark"
+primaryColor = "#58a6ff"
+backgroundColor = "#0d1117"
+secondaryBackgroundColor = "#161b22"
+textColor = "#e6edf3"
+
+# Khop voi gioi han upload cua API tren Vercel (MAX_UPLOAD_MB=4, body toi da 4.5 MB)
+# de o upload hien "4MB per file" thay vi "200MB per file".
+[server]
+maxUploadSize = 4
