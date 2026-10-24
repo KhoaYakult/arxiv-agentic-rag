@@ -10,7 +10,7 @@ run:
 	uvicorn app.api.main:app --reload --port 8000
 
 ui:
-	streamlit run streamlit_app.py
+	streamlit run ui/streamlit_app.py
 
 test:
 	python -m pytest tests/ -v

@@ -1,0 +1,4 @@
+# Chi can cho giao dien Streamlit (Streamlit Community Cloud doc file nay
+# nam canh entrypoint ui/streamlit_app.py truoc, roi moi toi requirements.txt o root repo).
+streamlit==1.63.0
+requests==2.34.2

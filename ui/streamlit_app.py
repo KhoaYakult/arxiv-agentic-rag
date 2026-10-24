@@ -1,6 +1,6 @@
 """
-streamlit_app.py
-=================
+ui/streamlit_app.py
+===================
 Giao dien nguoi dung cho ArXiv Agentic RAG.
 Giao tiep voi FastAPI Backend qua HTTP REST API.
 
@@ -8,11 +8,18 @@ Cach chay:
     # Terminal 1: Bat FastAPI server
     python -m uvicorn app.api.main:app --port 8000 --reload
 
-    # Terminal 2: Bat Streamlit UI
-    streamlit run streamlit_app.py
+    # Terminal 2: Bat Streamlit UI (tu thu muc goc repo)
+    streamlit run ui/streamlit_app.py
+
+QUY TAC AN TOAN: moi text khong tin cay (cau hoi, cau tra loi LLM, preview
+chunk tu PDF, ten paper lay tu ten file) PHAI qua html.escape() (helper `esc`)
+truoc khi chen vao chuoi HTML co unsafe_allow_html=True.
 """
 
+import html
+import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -51,6 +58,59 @@ def _resolve_api_base() -> str:
 API_BASE = _resolve_api_base().rstrip("/")
 if not API_BASE.endswith("/api/v1"):
     API_BASE = f"{API_BASE}/api/v1"
+
+
+def _resolve_api_key() -> str | None:
+    """API key gui kem header X-API-Key: env APP_API_KEY -> st.secrets -> None."""
+    if os.environ.get("APP_API_KEY"):
+        return os.environ["APP_API_KEY"]
+    try:
+        if "APP_API_KEY" in st.secrets:
+            return str(st.secrets["APP_API_KEY"]) or None
+    except Exception:
+        pass
+    return None
+
+
+API_KEY = _resolve_api_key()
+
+# Gioi han phia server (app/api/routes.py) - kiem tra truoc o UI de bao loi than thien.
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+PAPER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
+_ARXIV_URL_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5}(?:v\d+)?)(?:\.pdf)?/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
+MSG_UNAUTHORIZED = (
+    "API key thiếu hoặc không hợp lệ (HTTP 401). "
+    "Kiểm tra biến môi trường / secret `APP_API_KEY` của giao diện."
+)
+
+
+def esc(text) -> str:
+    """Escape text khong tin cay truoc khi chen vao HTML (chong XSS)."""
+    return html.escape(str(text), quote=True)
+
+
+def esc_multiline(text) -> str:
+    """Escape roi doi xuong dong thanh <br> (khong sinh dong trong de khoi
+    ngat HTML block cua markdown)."""
+    return esc(text).replace("\r\n", "\n").replace("\n", "<br>")
+
+
+def extract_arxiv_id(raw: str) -> str | None:
+    """Lay arXiv ID tu ID tran ('2401.15884v2', 'arXiv:2401.15884') hoac URL abs/pdf."""
+    raw = (raw or "").strip()
+    raw = re.sub(r"^arxiv:\s*", "", raw, flags=re.IGNORECASE)
+    if ARXIV_ID_RE.match(raw):
+        return raw
+    m = _ARXIV_URL_RE.match(raw)
+    return m.group(1) if m else None
+
+
+def _headers() -> dict:
+    return {"X-API-Key": API_KEY} if API_KEY else {}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CUSTOM CSS — GIAO DIEN PREMIUM DARK MODE
@@ -305,25 +365,40 @@ if "selected_paper" not in st.session_state:
 # HELPER FUNCTIONS — Giao tiep voi FastAPI Backend
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _error_from_response(r: requests.Response) -> dict:
+    """Doi response loi cua server thanh {'error': msg}; hien `detail` neu co."""
+    if r.status_code == 401:
+        return {"error": MSG_UNAUTHORIZED}
+    try:
+        detail = r.json().get("detail")
+    except Exception:
+        detail = None
+    if detail is None:
+        detail = f"HTTP {r.status_code}: {r.text[:300]}"
+    elif not isinstance(detail, str):
+        detail = json.dumps(detail, ensure_ascii=False)  # 422: detail la list
+    return {"error": detail}
+
+
 def check_server() -> bool:
     """Kiem tra FastAPI server co dang chay khong."""
     try:
         # Tăng timeout lên 10s cho kết nối mạng HTTPS xuyên quốc gia
-        r = requests.get(f"{API_BASE}/health", timeout=10)
+        r = requests.get(f"{API_BASE}/health", headers=_headers(), timeout=10)
         return r.status_code == 200
     except Exception:
         return False
 
 
-def get_papers() -> list[dict]:
-    """Lay danh sach bai bao da duoc index tu server."""
+def get_papers() -> tuple[list[dict], str | None]:
+    """Lay danh sach bai bao da duoc index. Tra ve (papers, loi_neu_co)."""
     try:
-        r = requests.get(f"{API_BASE}/papers", timeout=5)
+        r = requests.get(f"{API_BASE}/papers", headers=_headers(), timeout=10)
         if r.status_code == 200:
-            return r.json().get("papers", [])
-    except Exception:
-        pass
-    return []
+            return r.json().get("papers", []), None
+        return [], _error_from_response(r)["error"]
+    except Exception as e:
+        return [], str(e)
 
 
 def upload_pdf(file_bytes: bytes, filename: str, paper_id: str | None = None) -> dict | None:
@@ -339,15 +414,31 @@ def upload_pdf(file_bytes: bytes, filename: str, paper_id: str | None = None) ->
     try:
         files = {"file": (filename, file_bytes, "application/pdf")}
         data = {"paper_id": paper_id} if paper_id else {}
-        r = requests.post(f"{API_BASE}/upload", files=files, data=data, timeout=30)
+        r = requests.post(
+            f"{API_BASE}/upload", files=files, data=data, headers=_headers(), timeout=30
+        )
         if r.status_code in (200, 202):
             return r.json()
-        else:
-            try:
-                err_detail = r.json().get("detail", r.text)
-            except Exception:
-                err_detail = f"HTTP {r.status_code}: {r.text[:300]}"
-            return {"error": err_detail}
+        return _error_from_response(r)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def import_arxiv(arxiv_id: str) -> dict | None:
+    """
+    POST /papers/arxiv. Cung ngu nghia voi upload_pdf: 202 = paper moi (poll
+    status), 200 = da index truoc do (status='ready', khong can poll).
+    """
+    try:
+        r = requests.post(
+            f"{API_BASE}/papers/arxiv",
+            json={"arxiv_id": arxiv_id},
+            headers=_headers(),
+            timeout=60,  # server con phai tai PDF tu arxiv.org
+        )
+        if r.status_code in (200, 202):
+            return r.json()
+        return _error_from_response(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -361,11 +452,16 @@ def poll_paper_status(paper_id: str, timeout_sec: int = 600, interval_sec: float
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         try:
-            r = requests.get(f"{API_BASE}/papers/{paper_id}/status", timeout=10)
+            r = requests.get(
+                f"{API_BASE}/papers/{paper_id}/status", headers=_headers(), timeout=10
+            )
             if r.status_code == 200:
                 info = r.json()
                 if info["status"] != "processing":
                     return info
+            elif r.status_code in (401, 404):
+                # Loi vinh vien - khong poll tiep den het timeout.
+                return {"status": "failed", "error": _error_from_response(r)["error"]}
         except Exception:
             pass
         time.sleep(interval_sec)
@@ -380,13 +476,55 @@ def ask_question(question: str, paper_id: str, thread_id: str | None) -> dict | 
             "paper_id": paper_id,
             "thread_id": thread_id,
         }
-        r = requests.post(f"{API_BASE}/ask", json=payload, timeout=120)
+        r = requests.post(f"{API_BASE}/ask", json=payload, headers=_headers(), timeout=120)
         if r.status_code == 200:
             return r.json()
-        else:
-            return {"error": r.json().get("detail", "Loi khong xac dinh")}
+        return _error_from_response(r)
     except Exception as e:
         return {"error": str(e)}
+
+
+def select_paper(paper_id: str) -> None:
+    """Chon paper va mo phien chat moi (neu khac paper dang chon)."""
+    if paper_id != st.session_state.selected_paper:
+        st.session_state.selected_paper = paper_id
+        st.session_state.chat_history = []
+        st.session_state.thread_id = f"session_{uuid.uuid4().hex[:8]}"
+
+
+def handle_index_result(result: dict | None) -> None:
+    """
+    Xu ly ket qua /upload hoac /papers/arxiv (cung ngu nghia):
+    loi -> st.error; 200/ready (dedup) -> chon paper cu; 202 -> poll roi chon paper moi.
+    """
+    if not result:
+        return
+    if "error" in result:
+        st.error(f"❌ {result['error']}")
+        return
+    if result.get("status") == "ready":
+        # 200 (dedup): da index truoc do, server tra ve paper CU (paper_id co
+        # the khac cai vua nhap) - khong can poll.
+        reused_id = result["paper_id"]
+        select_paper(reused_id)
+        # Lưu thông báo qua session_state vì st.rerun() xoá mọi st.info vẽ trước đó
+        st.session_state.upload_notice = (
+            f"ℹ️ Bài báo này đã được index trước đó — dùng lại paper_id `{reused_id}` "
+            f"({result.get('num_chunks', 0)} chunks)."
+        )
+        st.rerun()
+        return
+    # 202: parse/embed/index chay nen o server. Poll status de biet khi nao xong.
+    with st.spinner("Đang parse + embed + index (có thể mất vài phút nếu paper nhiều chunk)..."):
+        final = poll_paper_status(result["paper_id"])
+    if final.get("status") == "ready":
+        select_paper(result["paper_id"])
+        st.session_state.upload_notice = (
+            f"✅ Index thành công! {final['num_chunks']} chunks đã sẵn sàng."
+        )
+        st.rerun()
+    else:
+        st.error(f"❌ Index thất bại: {final.get('error', 'không rõ nguyên nhân, xem log server.')}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -404,7 +542,10 @@ with st.sidebar:
         st.markdown('🟢 <span class="server-online">Server đang hoạt động</span>', unsafe_allow_html=True)
     else:
         st.markdown('🔴 <span class="server-offline">Server chưa chạy</span>', unsafe_allow_html=True)
-        st.warning("Hãy chạy lệnh sau trước:\n```\npython -m uvicorn app.api.main:app --port 8000\n```")
+        if API_BASE.startswith("http://127.0.0.1") or API_BASE.startswith("http://localhost"):
+            st.warning("Hãy chạy lệnh sau trước:\n```\npython -m uvicorn app.api.main:app --port 8000\n```")
+        else:
+            st.warning(f"Không kết nối được tới API: `{API_BASE}`. Kiểm tra `API_BASE` và trạng thái server.")
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
@@ -422,50 +563,67 @@ with st.sidebar:
         label_visibility="visible",
     )
 
-    upload_notice = st.session_state.pop("upload_notice", None)
-    if upload_notice:
-        st.info(upload_notice)
+    # Kiem tra truoc o phia client (server cung kiem tra lai, day chi de bao loi than thien)
+    upload_problem = None
+    if uploaded_file is not None and uploaded_file.size > MAX_UPLOAD_BYTES:
+        upload_problem = (
+            f"File quá lớn ({uploaded_file.size / 1024 / 1024:.1f} MB). "
+            f"Giới hạn tối đa là {MAX_UPLOAD_BYTES // 1024 // 1024} MB."
+        )
+    elif custom_id.strip() and not PAPER_ID_RE.match(custom_id.strip()):
+        upload_problem = (
+            "Paper ID không hợp lệ: chỉ dùng chữ thường a-z, số, `_` hoặc `-`, "
+            "bắt đầu bằng chữ/số, tối đa 64 ký tự (vd: `cortexode_2023`)."
+        )
+    if upload_problem:
+        st.warning(upload_problem)
 
-    if st.button("⬆️  Upload & Index", disabled=not (server_ok and uploaded_file), use_container_width=True):
+    if st.button(
+        "⬆️  Upload & Index",
+        disabled=not (server_ok and uploaded_file and not upload_problem),
+        use_container_width=True,
+    ):
         with st.spinner("Đang gửi PDF lên server..."):
             result = upload_pdf(
                 file_bytes=uploaded_file.read(),
                 filename=uploaded_file.name,
                 paper_id=custom_id.strip() or None,
             )
-        if result and "error" not in result and result.get("status") == "ready":
-            # /upload trả 200 (dedup): file này đã index trước đó, server trả về
-            # paper CŨ (paper_id có thể khác cái vừa nhập) — không cần poll.
-            reused_id = result["paper_id"]
-            if reused_id != st.session_state.selected_paper:
-                st.session_state.selected_paper = reused_id
-                st.session_state.chat_history = []
-                st.session_state.thread_id = f"session_{uuid.uuid4().hex[:8]}"
-            # Lưu thông báo qua session_state vì st.rerun() xoá mọi st.info vẽ trước đó
-            st.session_state.upload_notice = (
-                f"ℹ️ File này đã được index trước đó — dùng lại paper_id `{reused_id}` "
-                f"({result.get('num_chunks', 0)} chunks)."
-            )
-            st.rerun()
-        elif result and "error" not in result:
-            # /upload trả 202 ngay — parse/embed/index chạy nền ở server.
-            # Poll status ở đây để không phải đoán khi nào xong.
-            with st.spinner("Đang parse + embed + index (có thể mất vài phút nếu paper nhiều chunk)..."):
-                final = poll_paper_status(result["paper_id"])
-            if final.get("status") == "ready":
-                st.success(f"✅ Index thành công! {final['num_chunks']} chunks đã sẵn sàng.")
-                st.rerun()
-            else:
-                st.error(f"❌ Index thất bại: {final.get('error', 'không rõ nguyên nhân, xem log server.')}")
-        elif result:
-            st.error(f"❌ {result.get('error')}")
+        handle_index_result(result)
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # ── Nhap tu arXiv ──
+    st.markdown('<div class="section-label">🔗 Nhập từ arXiv</div>', unsafe_allow_html=True)
+    arxiv_input = st.text_input(
+        label="arXiv ID hoặc URL",
+        placeholder="vd: 2401.15884 hoặc https://arxiv.org/abs/2401.15884",
+        key="arxiv_input",
+    )
+    arxiv_id = extract_arxiv_id(arxiv_input) if arxiv_input.strip() else None
+    if arxiv_input.strip() and not arxiv_id:
+        st.warning(
+            "Không nhận ra arXiv ID. Nhập dạng `2401.15884` (có thể kèm `v2`) "
+            "hoặc URL `arxiv.org/abs/...` / `arxiv.org/pdf/...`."
+        )
+
+    upload_notice = st.session_state.pop("upload_notice", None)
+    if upload_notice:
+        st.info(upload_notice)
+
+    if st.button("📥  Nhập & Index từ arXiv", disabled=not (server_ok and arxiv_id), use_container_width=True):
+        with st.spinner("Đang tải PDF từ arXiv..."):
+            result = import_arxiv(arxiv_id)
+        handle_index_result(result)
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
     # ── Chon bai bao ──
     st.markdown('<div class="section-label">🗂️ Chọn bài báo</div>', unsafe_allow_html=True)
 
-    papers = get_papers() if server_ok else []
+    papers, papers_error = get_papers() if server_ok else ([], None)
+    if papers_error:
+        st.error(f"❌ Không tải được danh sách bài báo: {papers_error}")
 
     if papers:
         paper_options = {p["paper_id"]: f"{p['title']} ({p['num_chunks']} chunks)" for p in papers}
@@ -482,22 +640,21 @@ with st.sidebar:
         )
 
         if chosen != st.session_state.selected_paper:
-            st.session_state.selected_paper = chosen
-            st.session_state.chat_history = []   # Xoa lich su khi doi bai bao
-            st.session_state.thread_id = f"session_{uuid.uuid4().hex[:8]}"
+            select_paper(chosen)   # Xoa lich su + thread_id moi khi doi bai bao
             st.rerun()
 
         # Hien thi paper info
         selected_info = next((p for p in papers if p["paper_id"] == chosen), None)
         if selected_info:
+            # XSS: title lay tu ten file nguoi upload -> phai escape
             st.markdown(f"""
             <div class="paper-card">
-                <div class="paper-title">{selected_info['title']}</div>
-                ID: <code>{selected_info['paper_id']}</code><br>
-                Chunks: {selected_info['num_chunks']}
+                <div class="paper-title">{esc(selected_info['title'])}</div>
+                ID: <code>{esc(selected_info['paper_id'])}</code><br>
+                Chunks: {esc(selected_info['num_chunks'])}
             </div>""", unsafe_allow_html=True)
-    else:
-        st.caption("Chưa có bài báo nào. Hãy upload PDF ở trên.")
+    elif not papers_error:
+        st.caption("Chưa có bài báo nào. Hãy upload PDF hoặc nhập từ arXiv ở trên.")
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
@@ -528,7 +685,7 @@ paper_name = (
     else "chưa có bài báo nào được chọn"
 )
 st.markdown(
-    f'<div class="chat-subheader">Đang làm việc với: <strong>{paper_name}</strong></div>',
+    f'<div class="chat-subheader">Đang làm việc với: <strong>{esc(paper_name)}</strong></div>',
     unsafe_allow_html=True,
 )
 
@@ -549,8 +706,8 @@ else:
         if msg["role"] == "user":
             st.markdown(f"""
             <div class="msg-user">
-                <div class="msg-meta">🧑‍💻 Bạn &nbsp;·&nbsp; {msg['time']}</div>
-                {msg['content']}
+                <div class="msg-meta">🧑‍💻 Bạn &nbsp;·&nbsp; {esc(msg['time'])}</div>
+                {esc_multiline(msg['content'])}
             </div>""", unsafe_allow_html=True)
 
         else:
@@ -562,15 +719,15 @@ else:
             )
             rewrite_badge = ""
             if msg.get("rewrite_count", 0) > 0:
-                rewrite_badge = f'<span class="badge badge-blue">↺ Viết lại x{msg["rewrite_count"]}</span>'
+                rewrite_badge = f'<span class="badge badge-blue">↺ Viết lại x{esc(msg["rewrite_count"])}</span>'
 
             st.markdown(f"""
             <div class="msg-ai">
                 <div class="msg-meta">
-                    🤖 Agent &nbsp;·&nbsp; {msg['time']}
+                    🤖 Agent &nbsp;·&nbsp; {esc(msg['time'])}
                     &nbsp; {grade_badge} &nbsp; {rewrite_badge}
                 </div>
-                {msg['content']}
+                {esc_multiline(msg['content'])}
             </div>""", unsafe_allow_html=True)
 
             # ── Nguon trich dan ──
@@ -578,12 +735,15 @@ else:
             if sources:
                 with st.expander(f"📎 Nguồn trích dẫn ({len(sources)} đoạn văn)"):
                     for i, src in enumerate(sources, 1):
+                        # section/content_preview den tu PDF -> khong tin cay, phai escape
+                        page_num = src.get("page_num")
+                        page_html = f" · trang {esc(page_num)}" if page_num is not None else ""
                         st.markdown(f"""
                         <div class="source-card">
-                            <div class="source-section">#{i} · {src['section']}</div>
-                            <div class="source-preview">{src['content_preview']}…</div>
+                            <div class="source-section">#{i} · {esc(src['section'])}{page_html}</div>
+                            <div class="source-preview">{esc_multiline(src['content_preview'])}…</div>
                             <div style="margin-top:4px; font-size:0.7rem; color:var(--text-muted);">
-                                ID: <code>{src['chunk_id']}</code>
+                                ID: <code>{esc(src['chunk_id'])}</code>
                             </div>
                         </div>""", unsafe_allow_html=True)
 
@@ -604,6 +764,7 @@ with st.form(key="chat_form", clear_on_submit=True):
                 else "Hãy chọn một bài báo ở thanh bên trái trước."
             ),
             height=80,
+            max_chars=1000,   # khop AskRequest.max_length phia server
             disabled=not can_ask,
             label_visibility="collapsed",
         )
@@ -655,7 +816,7 @@ if submit and user_input.strip() and can_ask:
         error_msg = result.get("error") if result else "Không thể kết nối tới server."
         st.session_state.chat_history.append({
             "role": "assistant",
-            "content": f"❌ **Lỗi:** {error_msg}",
+            "content": f"❌ Lỗi: {error_msg}",
             "time": datetime.now().strftime("%H:%M"),
             "grade": "no",
             "rewrite_count": 0,

@@ -51,3 +51,6 @@ docs/
 
 # PDF paper dung de danh gia (Phase 3) - khong dua len GitHub
 eval/papers/
+
+# Secrets cua Streamlit (API_BASE, APP_API_KEY) - khong dua len GitHub
+.streamlit/secrets.toml
