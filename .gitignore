@@ -52,5 +52,8 @@ docs/
 # PDF paper dung de danh gia (Phase 3) - khong dua len GitHub
 eval/papers/
 
+# Cache query embedding cua eval (sinh lai duoc, ton quota Gemini) - khong commit
+eval/cache/
+
 # Secrets cua Streamlit (API_BASE, APP_API_KEY) - khong dua len GitHub
 .streamlit/secrets.toml

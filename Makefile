@@ -1,4 +1,4 @@
-.PHONY: install dev-install run ui test test-integration lint fmt docker-build docker-run
+.PHONY: install dev-install run ui test test-integration eval lint fmt docker-build docker-run
 
 install:
 	pip install -r requirements.txt
@@ -19,6 +19,12 @@ test:
 # Bat container tam: docker run -d --rm --name pgtest -e POSTGRES_PASSWORD=postgres -p 55432:5432 pgvector/pgvector:pg16
 test-integration:
 	TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/postgres python -m pytest tests/integration -v
+
+# Danh gia retrieval (Phase 3) tren DB eval RIENG. Can EVAL_DATABASE_URL trong moi truong, vd:
+#   EVAL_DATABASE_URL=postgresql://postgres:postgres@localhost:55434/postgres make eval
+# (KHONG dung Supabase - script tu choi URL chua "supabase"). Them tham so: make eval ARGS="--label x --configs sparse"
+eval:
+	python eval/run_eval.py $(ARGS)
 
 lint:
 	ruff check .
