@@ -548,7 +548,12 @@ with st.sidebar:
     else:
         st.markdown('🔴 <span class="server-offline">Server chưa chạy</span>', unsafe_allow_html=True)
         if API_BASE.startswith("http://127.0.0.1") or API_BASE.startswith("http://localhost"):
-            st.warning("Hãy chạy lệnh sau trước:\n```\npython -m uvicorn app.api.main:app --port 8000\n```")
+            # Tren Streamlit Cloud ma roi vao nhanh nay = chua dat API_BASE trong Secrets.
+            st.warning(
+                "Chưa cấu hình `API_BASE` nên UI đang gọi API ở máy local.\n\n"
+                "- Trên Streamlit Cloud: vào **Settings → Secrets**, thêm `API_BASE` và `APP_API_KEY`.\n"
+                "- Chạy local: `python -m uvicorn app.api.main:app --port 8000`"
+            )
         else:
             st.warning(f"Không kết nối được tới API: `{API_BASE}`. Kiểm tra `API_BASE` và trạng thái server.")
 
