@@ -1,4 +1,4 @@
-.PHONY: install dev-install run ui test test-integration eval eval-citations lint fmt docker-build docker-run
+.PHONY: install dev-install run ui test test-integration eval eval-citations lint fmt docker-build docker-run web-dev web-test
 
 install:
 	pip install -r requirements.txt
@@ -41,3 +41,10 @@ docker-build:
 
 docker-run:
 	docker run -p 8000:8000 --env-file .env arxiv-rag
+
+# Web UI moi (Next.js, thu muc web/). Can Node >= 22.
+web-dev:
+	cd web && npm run dev
+
+web-test:
+	cd web && npm run lint && npm run typecheck && npm test

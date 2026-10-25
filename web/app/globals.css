@@ -1,0 +1,177 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Dark mode theo prefers-color-scheme (khong dung class .dark) -> variant dark: cua shadcn bam theo he thong. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/* Token mau - huong A "Phong doc" (spec muc 6). Ten bien theo quy uoc shadcn de
+   component sinh ra tu shadcn tu an theo; mau nhan cua san pham la --jade. */
+:root {
+  color-scheme: light;
+  --background: #faf8f4;
+  --foreground: #1c1b19;
+  --card: #ffffff;
+  --card-foreground: #1c1b19;
+  --popover: #ffffff;
+  --popover-foreground: #1c1b19;
+  --muted: #f2efe8;
+  --muted-foreground: #5f5b53;
+  --faint: #76716a;
+  --border: rgba(28, 27, 25, 0.12);
+  --border-strong: rgba(28, 27, 25, 0.2);
+  --input: rgba(28, 27, 25, 0.2);
+  --ring: #2b6b57;
+  --primary: #1c1b19;
+  --primary-foreground: #faf8f4;
+  --secondary: #f2efe8;
+  --secondary-foreground: #1c1b19;
+  --accent: #ece8df; /* shadcn: nen hover cua menu, KHONG phai mau nhan */
+  --accent-foreground: #1c1b19;
+  --destructive: #b3412f;
+  --jade: #2b6b57;
+  --jade-soft: #e3efea;
+  --highlight: #ffe8a3;
+  --user-bubble: #eeeae2;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: #161513;
+    --foreground: #ece8e0;
+    --card: #1e1d1a;
+    --card-foreground: #ece8e0;
+    --popover: #1e1d1a;
+    --popover-foreground: #ece8e0;
+    --muted: #1b1a17;
+    --muted-foreground: #a39e94;
+    --faint: #8d887e;
+    --border: rgba(236, 232, 224, 0.1);
+    --border-strong: rgba(236, 232, 224, 0.18);
+    --input: rgba(236, 232, 224, 0.18);
+    --ring: #5fb496;
+    --primary: #ece8e0;
+    --primary-foreground: #161513;
+    --secondary: #1b1a17;
+    --secondary-foreground: #ece8e0;
+    --accent: #262420;
+    --accent-foreground: #ece8e0;
+    --destructive: #e07a66;
+    --jade: #5fb496;
+    --jade-soft: #1f2e28;
+    --highlight: #4a3f1a;
+    --user-bubble: #262420;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-jade: var(--jade);
+  --color-jade-soft: var(--jade-soft);
+  --color-highlight: var(--highlight);
+  --color-user-bubble: var(--user-bubble);
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), Georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-heading: var(--font-sans);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-composer: 20px;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.47;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Cau tra loi: serif 17/28 (dau tieng Viet chong nhau can line-height >= 1.6). */
+.answer-prose {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.answer-prose > * + * { margin-top: 0.75em; }
+.answer-prose strong { font-weight: 600; }
+.answer-prose ul { list-style: disc; padding-left: 1.4em; }
+.answer-prose ol { list-style: decimal; padding-left: 1.4em; }
+.answer-prose li + li { margin-top: 0.3em; }
+.answer-prose h1, .answer-prose h2, .answer-prose h3 { font-weight: 600; line-height: 1.35; margin-top: 1.1em; }
+.answer-prose h1, .answer-prose h2 { font-size: 21px; }
+.answer-prose h3 { font-size: 18px; }
+.answer-prose code { font-family: var(--font-mono); font-size: 0.85em; background: var(--muted); padding: 0.1em 0.35em; border-radius: 4px; }
+.answer-prose pre { background: var(--muted); padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+.answer-prose pre code { background: none; padding: 0; }
+.answer-prose a { color: var(--jade); text-decoration: underline; text-underline-offset: 2px; }
+.answer-prose table { border-collapse: collapse; font-family: var(--font-sans); font-size: 14px; }
+.answer-prose th, .answer-prose td { border: 1px solid var(--border); padding: 4px 8px; }
+.answer-prose blockquote { border-left: 2px solid var(--border-strong); padding-left: 12px; color: var(--muted-foreground); }
+
+/* Dong "dang doc..." khi cho cau tra loi. Chi animate background-position, tat khi reduced-motion. */
+.shimmer-text {
+  background: linear-gradient(90deg, var(--faint) 0%, var(--foreground) 45%, var(--faint) 90%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Doan duoc trich trong text layer cua react-pdf: chu trong text layer trong suot,
+   chi thay nen vang. Trang PDF luon nen trang nen dung 1 mau vang cho ca dark mode. */
+.pdf-mark {
+  background: rgba(255, 214, 102, 0.55);
+  color: transparent;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .shimmer-text { animation: none; color: var(--muted-foreground); background: none; }
+}
