@@ -11,7 +11,9 @@ import { findHighlight } from "@/lib/pdf-highlight";
 import { plainQuote } from "@/lib/plain-quote";
 
 // pdfjs-dist la dependency truc tiep va PHAI trung phien ban ma react-pdf ghim (xem package.json cua react-pdf).
-pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+// Dung build LEGACY (Safari/iOS < 18): worker o day + alias "pdfjs-dist" -> legacy/build/pdf.mjs trong
+// next.config.ts. Doi phien ban pdfjs-dist thi giu ca hai cho khop va kiem tra lai tren Safari cu.
+pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
