@@ -47,6 +47,8 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  // Dem so lan that bai lien tiep: doi gia tri de effect backoff tu hen lai lan nua khi offline van true.
+  const [failures, setFailures] = useState(0);
   const [ingests, setIngests] = useState<IngestJob[]>([]);
   const retryDelay = useRef(2000);
   const lateRefreshTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
@@ -57,11 +59,14 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
       setPapers(papers);
       setError(null);
       setOffline(false);
+      setFailures(0);
       retryDelay.current = 2000;
     } catch (e) {
       const err = e as ApiCallError;
-      if (err.code === "backend_down" || err.code === "timeout") setOffline(true);
-      else setError(err.message);
+      if (err.code === "backend_down" || err.code === "timeout") {
+        setOffline(true);
+        setFailures((n) => n + 1);
+      } else setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -98,7 +103,7 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
       void refresh();
     }, retryDelay.current);
     return () => clearTimeout(t);
-  }, [offline, refresh]);
+  }, [offline, failures, refresh]);
 
   useEffect(() => {
     const goOffline = () => setOffline(true);

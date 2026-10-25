@@ -21,8 +21,33 @@ export function Sidebar({ onNavigate, onCollapse }: { onNavigate?: () => void; o
   const params = useParams<{ paperId?: string }>();
   const router = useRouter();
   const activeId = params?.paperId ? decodeURIComponent(params.paperId) : null;
-  const [confirm, setConfirm] = useState<Paper | null>(null);
+  // target giu lai bai vua chon de tieu de dialog khong bi trong khi dong (animation); open dieu khien hien/an.
+  const [target, setTarget] = useState<Paper | null>(null);
+  const [open, setOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  function askDelete(p: Paper) {
+    setTarget(p);
+    setDeleteError(null);
+    setOpen(true);
+  }
+
+  async function confirmDelete() {
+    if (!target || deleting) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await removePaper(target.paper_id);
+      if (target.paper_id === activeId) router.replace("/");
+      setDeleteError(null);
+      setOpen(false);
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function logout() {
     await api.logout().catch(() => undefined);
@@ -83,7 +108,7 @@ export function Sidebar({ onNavigate, onCollapse }: { onNavigate?: () => void; o
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem className="text-destructive" onSelect={() => setConfirm(p)}>
+                  <DropdownMenuItem className="min-h-11 text-destructive md:min-h-0" onSelect={() => askDelete(p)}>
                     Xoá bài báo
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -99,31 +124,26 @@ export function Sidebar({ onNavigate, onCollapse }: { onNavigate?: () => void; o
         </button>
       </div>
 
-      <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && (setConfirm(null), setDeleteError(null))}>
+      <AlertDialog open={open} onOpenChange={(o) => { if (!o && !deleting) { setOpen(false); setDeleteError(null); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Xoá bài báo này?</AlertDialogTitle>
             <AlertDialogDescription>
-              “{confirm?.title}” và mọi đoạn đã lập chỉ mục sẽ bị xoá. Không hoàn tác được.
+              “{target?.title}” và mọi đoạn đã lập chỉ mục sẽ bị xoá. Không hoàn tác được.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && <p className="text-[13px] text-destructive">{deleteError}</p>}
           <AlertDialogFooter>
-            <AlertDialogCancel>Huỷ</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting} className="h-11 md:h-8">Huỷ</AlertDialogCancel>
             <AlertDialogAction
-              onClick={async (e) => {
+              disabled={deleting}
+              className="h-11 md:h-8"
+              onClick={(e) => {
                 e.preventDefault();
-                if (!confirm) return;
-                try {
-                  await removePaper(confirm.paper_id);
-                  if (confirm.paper_id === activeId) router.replace("/");
-                  setConfirm(null);
-                } catch (err) {
-                  setDeleteError((err as Error).message);
-                }
+                void confirmDelete();
               }}
             >
-              Xoá
+              {deleting ? "Đang xoá…" : "Xoá"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
