@@ -1,3 +1,5 @@
+> **Đang được thay thế:** giao diện mới nằm ở [`web/`](../web/README.md) (Next.js). Thư mục `ui/` sẽ bị gỡ khi bản mới chạy ổn trên Vercel.
+
 # Giao diện Streamlit
 
 Giao diện chat cho ArXiv Agentic RAG. Chỉ gọi API FastAPI qua HTTP nên có thể deploy tách riêng khỏi backend. File chính là `ui/streamlit_app.py`, dependency riêng nằm ở `ui/requirements.txt` (chỉ `streamlit` và `requests`).
