@@ -16,6 +16,7 @@ Hai chế độ:
 """
 
 import math
+import re
 
 # Ligature thường gặp trong PDF -> chữ thường để so khớp
 _LIGATURES = {
@@ -138,3 +139,26 @@ def group_mean(
     for m, g in zip(per_question, group_keys, strict=True):
         buckets.setdefault(g, []).append(m[metric])
     return {g: (mean(v), len(v)) for g, v in buckets.items()}
+
+
+# Grammar marker trich dan - GIONG app/agent/rag_graph.py::CITATION_MARKER_RE va web/lib/citations.ts.
+_CITATION_RE = re.compile(r"\[(\d{1,3}(?:\s*[,–-]\s*\d{1,3})*)\]")
+_MAX_RANGE = 10
+
+
+def citation_markers(text: str) -> list[int]:
+    """So trich dan [n] trong cau tra loi, theo thu tu xuat hien, khong trung, mo rong khoang a-b."""
+    out: list[int] = []
+    for m in _CITATION_RE.finditer(text):
+        for part in m.group(1).split(","):
+            part = part.strip()
+            rng = re.fullmatch(r"(\d+)\s*[–-]\s*(\d+)", part)
+            if rng:
+                a, b = int(rng.group(1)), int(rng.group(2))
+                nums = list(range(a, b + 1)) if 0 <= b - a < _MAX_RANGE else []
+            else:
+                nums = [int(part)] if part.isdigit() else []
+            for n in nums:
+                if n not in out:
+                    out.append(n)
+    return out

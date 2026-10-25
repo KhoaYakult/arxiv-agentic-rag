@@ -1,4 +1,4 @@
-.PHONY: install dev-install run ui test test-integration eval lint fmt docker-build docker-run
+.PHONY: install dev-install run ui test test-integration eval eval-citations lint fmt docker-build docker-run
 
 install:
 	pip install -r requirements.txt
@@ -25,6 +25,10 @@ test-integration:
 # (KHONG dung Supabase - script tu choi URL chua "supabase"). Them tham so: make eval ARGS="--label x --configs sparse"
 eval:
 	python eval/run_eval.py $(ARGS)
+
+# Do trich dan [n] trong cau tra loi (goi LLM that). Can EVAL_DATABASE_URL nhu `make eval`.
+eval-citations:
+	python eval/check_citations.py $(ARGS)
 
 lint:
 	ruff check .

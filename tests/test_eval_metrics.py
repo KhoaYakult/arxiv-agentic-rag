@@ -112,3 +112,27 @@ def test_group_mean():
     per_q = [{"hit@5": 1.0}, {"hit@5": 0.0}, {"hit@5": 1.0}]
     out = m.group_mean(per_q, ["en", "vi", "en"], "hit@5")
     assert out == {"en": (1.0, 2), "vi": (0.0, 1)}
+
+
+class TestCitationMarkers:
+    def test_forms(self):
+        from eval.metrics import citation_markers
+
+        assert citation_markers("a [2]. b [1, 3]. c [4-6] d [2]") == [2, 1, 3, 4, 5, 6]
+        assert citation_markers("en dash [7–8]") == [7, 8]
+
+    def test_ignores_non_markers_and_huge_ranges(self):
+        from eval.metrics import citation_markers
+
+        assert citation_markers("a[i] [x] [1-500]") == []
+        assert citation_markers("no markers") == []
+
+
+class TestScoreAnswer:
+    def test_valid_out_of_range_and_precision(self):
+        from eval.check_citations import score_answer
+
+        chunks = [{"text": "Transformer (base model) 27.3 38.1"}, {"text": "unrelated"}]
+        s = score_answer("BLEU 38.1 [1] and [9]", chunks, ["Transformer (base model) 27.3 38.1"])
+        assert s == {"markers": [1, 9], "valid": [1], "out_of_range": 1, "precise": True}
+        assert score_answer("no cite", chunks, ["x"])["precise"] is False
