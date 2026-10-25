@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Copy, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { MarkdownAnswer } from "@/components/markdown-answer";
 import type { ChatMessage } from "@/lib/chat-store";
 import { citationLabel, stripCitationMarkers, type CitationRef } from "@/lib/citations";
@@ -21,12 +21,12 @@ function metaLine(msg: ChatMessage): string {
   return parts.join(" · ");
 }
 
-export function AssistantMessage({
+function AssistantMessageBase({
   msg, onOpenCitation, onRetry, onAskAgain,
 }: {
   msg: ChatMessage;
   onOpenCitation: (r: CitationRef) => void;
-  onRetry: () => void;
+  onRetry: (msg: ChatMessage) => void;
   onAskAgain: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -35,7 +35,7 @@ export function AssistantMessage({
     return (
       <div className="border-l-2 border-destructive pl-3 text-[14px] leading-relaxed">
         <p className="text-destructive">{msg.error}</p>
-        <button onClick={onRetry} className="mt-1.5 flex items-center gap-1.5 text-[13px] font-medium text-foreground hover:underline">
+        <button onClick={() => onRetry(msg)} className="mt-1 flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-foreground hover:underline md:min-h-6">
           <RotateCcw className="size-3.5" /> Thử lại
         </button>
       </div>
@@ -73,28 +73,35 @@ export function AssistantMessage({
             <button
               key={s.chunk_id}
               onClick={() => onOpenCitation({ n, source: s, label: citationLabel(s, n) })}
-              className="max-w-full truncate rounded-[6px] border border-border bg-card px-2 py-[3px] hover:border-border-strong"
+              className="flex min-h-11 max-w-full items-center gap-1 truncate rounded-[6px] border border-border bg-card px-2 py-[3px] hover:border-border-strong md:min-h-6"
             >
               <b className="font-mono text-[12px] font-medium text-foreground tabular-nums">{citationLabel(s, n)}</b> · {s.section}
             </button>
           ))}
         </div>
       )}
-      <div className="mt-2.5 flex gap-4 text-[13px] text-faint">
+      <div className="mt-1.5 flex gap-4 text-[13px] text-faint">
         <button
           onClick={async () => {
-            await navigator.clipboard.writeText(stripCitationMarkers(msg.content)).catch(() => undefined);
+            // Chi bao "Da chep" khi clipboard that su ghi duoc (http / bi chan quyen -> khong noi doi).
+            try {
+              await navigator.clipboard.writeText(stripCitationMarkers(msg.content));
+            } catch {
+              return;
+            }
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           }}
-          className="flex items-center gap-1 hover:text-foreground"
+          className="flex min-h-11 items-center gap-1 px-1 hover:text-foreground md:min-h-6"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} {copied ? "Đã chép" : "Sao chép"}
         </button>
-        <button onClick={onAskAgain} className="flex items-center gap-1 hover:text-foreground">
+        <button onClick={onAskAgain} className="flex min-h-11 items-center gap-1 px-1 hover:text-foreground md:min-h-6">
           <RotateCcw className="size-3.5" /> Hỏi lại
         </button>
       </div>
     </div>
   );
 }
+
+export const AssistantMessage = memo(AssistantMessageBase);

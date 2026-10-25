@@ -8,6 +8,10 @@ export class ApiCallError extends Error {
 }
 
 async function call<T>(input: string, init?: RequestInit): Promise<T> {
+  // Nguoi dung bam Dung giua luc doc body -> van phai ra AbortError (khong tra null / loi gia).
+  const throwIfAborted = () => {
+    if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  };
   let r: Response;
   try {
     r = await fetch(input, init);
@@ -15,6 +19,7 @@ async function call<T>(input: string, init?: RequestInit): Promise<T> {
     if (e instanceof DOMException && e.name === "AbortError") throw e;
     throw new ApiCallError("backend_down", "Không kết nối được máy chủ. Kiểm tra mạng và thử lại.", 0);
   }
+  throwIfAborted();
   if (r.status === 401) {
     // Can tai lai toan trang (xoa state) nen khong dung router.push.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
@@ -23,6 +28,7 @@ async function call<T>(input: string, init?: RequestInit): Promise<T> {
   }
   if (r.status === 204) return undefined as T;
   const body = await r.json().catch(() => null);
+  throwIfAborted();
   if (!r.ok) {
     throw new ApiCallError(body?.error?.code ?? "server_error", body?.error?.message ?? "Máy chủ gặp lỗi. Hãy thử lại.", r.status);
   }

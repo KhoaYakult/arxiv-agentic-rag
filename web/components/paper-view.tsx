@@ -41,11 +41,25 @@ export function PaperView({ paperId }: { paperId: string }) {
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // threadRef = thread_id cua cuoc tro chuyen DANG HIEN (dong bo, khong cho render). Moi ket qua
+  // /ask chi duoc ap dung neu thread luc gui van la thread hien tai (tranh tra loi lac sang cuoc khac).
+  const threadRef = useRef<string | null>(null);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setChat(loadChat(paperId)); // localStorage chi doc duoc o client -> sau mount
+    const loaded = loadChat(paperId);
+    threadRef.current = loaded.threadId;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setChat(loaded); // localStorage chi doc duoc o client -> sau mount
+    setDraft("");
+    setPending(null);
     setPdfOpen(false);
     setPdfTarget(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    return () => {
+      // doi paper / unmount: huy request dang bay
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
   }, [paperId]);
 
   const update = useCallback(
@@ -63,48 +77,61 @@ export function PaperView({ paperId }: { paperId: string }) {
     bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [chat?.messages.length, pending]);
 
-  async function send(question: string) {
-    if (!chat || pending || checkQuestion(question)) return;
-    const user: ChatMessage = { id: uid(), role: "user", content: question.trim(), createdAt: now() };
-    update((s) => ({ ...s, messages: [...s.messages, user] }));
-    setDraft("");
-    const startedAt = now();
-    setPending({ startedAt });
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const res = await api.ask({ question: user.content, paper_id: paperId, thread_id: chat.threadId }, controller.signal);
-      update((s) => ({
-        ...s,
-        messages: [...s.messages, {
-          id: uid(), role: "assistant", content: res.answer, createdAt: now(), sources: res.sources,
-          grade: res.grade, rewriteCount: res.rewrite_count, elapsedMs: now() - startedAt,
-        }],
-      }));
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") {
-        update((s) => ({ ...s, messages: [...s.messages, { id: uid(), role: "assistant", content: "", createdAt: now(), stopped: true }] }));
-      } else {
-        const err = e as ApiCallError;
+  const send = useCallback(
+    async (question: string) => {
+      if (!chat || pending || checkQuestion(question)) return;
+      const threadId = chat.threadId;
+      const applies = () => threadRef.current === threadId;
+      const user: ChatMessage = { id: uid(), role: "user", content: question.trim(), createdAt: now() };
+      update((s) => ({ ...s, messages: [...s.messages, user] }));
+      setDraft("");
+      const startedAt = now();
+      setPending({ startedAt });
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const res = await api.ask({ question: user.content, paper_id: paperId, thread_id: threadId }, controller.signal);
+        if (!applies()) return;
         update((s) => ({
           ...s,
-          messages: [...s.messages, { id: uid(), role: "assistant", content: "", createdAt: now(), error: err.message, question: user.content }],
+          messages: [...s.messages, {
+            id: uid(), role: "assistant", content: res.answer, createdAt: now(), sources: res.sources,
+            grade: res.grade, rewriteCount: res.rewrite_count, elapsedMs: now() - startedAt,
+          }],
         }));
-        setDraft(user.content); // giu lai cau hoi trong o nhap
+      } catch (e) {
+        if (!applies()) return;
+        if (e instanceof DOMException && e.name === "AbortError") {
+          update((s) => ({ ...s, messages: [...s.messages, { id: uid(), role: "assistant", content: "", createdAt: now(), stopped: true }] }));
+        } else {
+          const err = e as ApiCallError;
+          update((s) => ({
+            ...s,
+            messages: [...s.messages, { id: uid(), role: "assistant", content: "", createdAt: now(), error: err.message, question: user.content }],
+          }));
+          setDraft(user.content); // giu lai cau hoi trong o nhap
+        }
+      } finally {
+        // Request cu (da bi huy) khong duoc xoa trang thai cua request moi.
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setPending(null);
+        }
       }
-    } finally {
-      setPending(null);
-      abortRef.current = null;
-    }
-  }
+    },
+    [chat, pending, paperId, update],
+  );
 
-  function retry(msg: ChatMessage) {
-    if (!msg.question) return;
-    update((s) => ({ ...s, messages: s.messages.filter((m) => m.id !== msg.id) }));
-    void send(msg.question);
-  }
+  const retry = useCallback(
+    (msg: ChatMessage) => {
+      if (!msg.question) return;
+      update((s) => ({ ...s, messages: s.messages.filter((m) => m.id !== msg.id) }));
+      void send(msg.question);
+    },
+    [update, send],
+  );
 
-  function openCitation(ref: CitationRef) {
+  const openCitation = useCallback((ref: CitationRef) => {
     setPdfTarget({
       page: ref.source.page_num ?? 1,
       quote: ref.source.text || ref.source.content_preview,
@@ -112,13 +139,23 @@ export function PaperView({ paperId }: { paperId: string }) {
       token: now(),
     });
     setPdfOpen(true);
-  }
+  }, []);
 
   function newConversation() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPending(null);
     clearChat(paperId);
-    setChat({ threadId: newThreadId(), messages: [] });
+    const fresh = { threadId: newThreadId(), messages: [] };
+    threadRef.current = fresh.threadId;
+    setChat(fresh);
     setDraft("");
   }
+
+  const lastUserContent = [...(chat?.messages ?? [])].reverse().find((m) => m.role === "user")?.content;
+  const askAgain = useCallback(() => {
+    if (lastUserContent) void send(lastUserContent);
+  }, [lastUserContent, send]);
 
   if (!loading && !paper) {
     return (
@@ -132,7 +169,6 @@ export function PaperView({ paperId }: { paperId: string }) {
   }
 
   const messages = chat?.messages ?? [];
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
 
   return (
     <div className="flex h-full min-w-0">
@@ -151,7 +187,7 @@ export function PaperView({ paperId }: { paperId: string }) {
                 setPdfTarget((t) => t ?? { page: 1, quote: "", section: "", token: now() });
                 setPdfOpen((o) => !o);
               }}
-              className="flex h-8 items-center gap-1.5 rounded-[6px] border border-border bg-card px-2.5 text-[13px] text-muted-foreground hover:border-border-strong"
+              className="flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-[6px] border border-border bg-card px-2.5 text-[13px] text-muted-foreground hover:border-border-strong md:h-8 md:min-w-0"
             >
               <FileText className="size-3.5" /> <span className="hidden sm:inline">{pdfOpen ? "Đóng PDF" : "Mở PDF"}</span>
             </button>
@@ -159,7 +195,7 @@ export function PaperView({ paperId }: { paperId: string }) {
           <button
             onClick={newConversation}
             aria-label="Cuộc trò chuyện mới"
-            className="flex h-8 items-center gap-1.5 rounded-[6px] border border-border bg-card px-2.5 text-[13px] text-muted-foreground hover:border-border-strong"
+            className="flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-[6px] border border-border bg-card px-2.5 text-[13px] text-muted-foreground hover:border-border-strong md:h-8 md:min-w-0"
           >
             <SquarePen className="size-3.5" /> <span className="hidden sm:inline">Cuộc trò chuyện mới</span>
           </button>
@@ -174,7 +210,7 @@ export function PaperView({ paperId }: { paperId: string }) {
                 <ul className="mt-2 space-y-1.5">
                   {SUGGESTIONS.map((q) => (
                     <li key={q}>
-                      <button onClick={() => void send(q)} className="text-left text-[15px] text-foreground underline decoration-border-strong underline-offset-4 hover:decoration-foreground">
+                      <button onClick={() => void send(q)} className="min-h-11 py-1 text-left text-[15px] text-foreground underline decoration-border-strong underline-offset-4 hover:decoration-foreground md:min-h-6">
                         {q}
                       </button>
                     </li>
@@ -190,8 +226,8 @@ export function PaperView({ paperId }: { paperId: string }) {
                   key={m.id}
                   msg={m}
                   onOpenCitation={openCitation}
-                  onRetry={() => retry(m)}
-                  onAskAgain={() => lastUser && void send(lastUser.content)}
+                  onRetry={retry}
+                  onAskAgain={askAgain}
                 />
               ),
             )}

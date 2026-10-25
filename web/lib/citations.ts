@@ -54,6 +54,17 @@ export function resolveCitations(nums: number[], sources: Source[]): CitationRef
     .map((n) => ({ n, source: sources[n - 1], label: citationLabel(sources[n - 1], n) }));
 }
 
+// Bao ve code (fenced + inline) bang placeholder khong-phai-whitespace, roi chay CUNG cac regex
+// voi app/agent/rag_graph.py::strip_citation_markers (chi gom khoang trang GIUA dong, giu indent list).
+const CODE_RE = /```[\s\S]*?(?:```|$)|`[^`\n]+`/g;
+
 export function stripCitationMarkers(text: string): string {
-  return text.replace(MARKER_RE, "").replace(/[ \t]+([.,;:!?])/g, "$1").replace(/[ \t]{2,}/g, " ");
+  const kept: string[] = [];
+  const guarded = text.replace(CODE_RE, (m) => `\uE000${kept.push(m) - 1}\uE001`);
+  const out = guarded
+    .replace(MARKER_RE, "")
+    .replace(/[ \t]+([.,;:!?])/g, "$1")
+    .replace(/(?<=\S)[ \t]{2,}/g, " ")
+    .replace(/[ \t]+$/gm, "");
+  return out.replace(/\uE000(\d+)\uE001/g, (_, i) => kept[Number(i)]);
 }

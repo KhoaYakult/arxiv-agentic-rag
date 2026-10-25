@@ -41,4 +41,15 @@ describe("resolveCitations", () => {
 
 describe("stripCitationMarkers", () => {
   it("removes markers for copy", () => expect(stripCitationMarkers("A [1]. B [2, 3].")).toBe("A. B."));
+  it("keeps list indentation and strips trailing spaces per line", () => {
+    expect(stripCitationMarkers("- a [1]\n  - b [2]\n    - c  \n")).toBe("- a\n  - b\n    - c\n");
+  });
+  it("leaves inline code untouched", () => {
+    expect(stripCitationMarkers("`x = a[1]` rồi [2]")).toBe("`x = a[1]` rồi");
+    expect(stripCitationMarkers("gọi `f(a[1])`  [3] xong")).toBe("gọi `f(a[1])` xong");
+  });
+  it("leaves fenced code blocks untouched", () => {
+    const text = "Mã [1]:\n```py\nx = [2]\n    y  =  a[3]  \n```\nxong [4]";
+    expect(stripCitationMarkers(text)).toBe("Mã:\n```py\nx = [2]\n    y  =  a[3]  \n```\nxong");
+  });
 });

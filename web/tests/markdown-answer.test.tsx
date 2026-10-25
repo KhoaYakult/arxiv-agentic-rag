@@ -21,4 +21,18 @@ describe("MarkdownAnswer", () => {
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
   });
+  it("dedupes chips with the same label inside one marker", () => {
+    const two: Source[] = [
+      { chunk_id: "a", section: "S1", content_preview: "p", text: "t1", page_num: 1 },
+      { chunk_id: "b", section: "S2", content_preview: "p", text: "t2", page_num: 1 },
+    ];
+    render(<MarkdownAnswer text={"Kết quả [1, 2]."} sources={two} onOpenCitation={vi.fn()} />);
+    expect(screen.getAllByRole("button", { name: /tr\. 1/ })).toHaveLength(1);
+  });
+  it("blocks markdown images", () => {
+    const { container } = render(
+      <MarkdownAnswer text={"![x](https://evil.example/q)"} sources={sources} onOpenCitation={vi.fn()} />,
+    );
+    expect(container.querySelector("img")).toBeNull();
+  });
 });

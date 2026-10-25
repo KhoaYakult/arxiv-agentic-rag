@@ -5,7 +5,7 @@ import type { CitationRef } from "@/lib/citations";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 const chipClass =
-  "relative mx-px inline-flex min-h-[22px] items-center rounded-[5px] bg-jade-soft px-[5px] align-[1px] font-mono text-[11.5px] font-medium leading-none text-jade tabular-nums hover:bg-jade hover:text-card focus-visible:bg-jade focus-visible:text-card before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] md:before:hidden";
+  "relative mx-px inline-flex min-h-[22px] items-center rounded-[5px] bg-jade-soft px-[5px] align-[1px] font-mono text-[11.5px] font-medium leading-none text-jade tabular-nums hover:bg-jade hover:text-card focus-visible:bg-jade focus-visible:text-card before:absolute before:-inset-y-[11px] before:inset-x-0 before:content-[''] md:before:-inset-y-px";
 
 export function CitationChip({ refItem, onOpen }: { refItem: CitationRef; onOpen: (r: CitationRef) => void }) {
   const mobile = useIsMobile();
@@ -26,7 +26,7 @@ export function CitationChip({ refItem, onOpen }: { refItem: CitationRef; onOpen
         </blockquote>
         <div className="mt-3 flex items-center justify-between text-[13px] text-faint">
           <span className="tabular-nums">{source.page_num != null ? `Trang ${source.page_num}` : `Đoạn ${refItem.n}`}</span>
-          <button type="button" onClick={() => onOpen(refItem)} className="font-medium text-jade hover:underline">
+          <button type="button" onClick={() => onOpen(refItem)} className="inline-flex min-h-11 items-center px-1 font-medium text-jade hover:underline md:min-h-6">
             {source.page_num != null ? `Mở trang ${source.page_num} →` : "Mở PDF →"}
           </button>
         </div>
