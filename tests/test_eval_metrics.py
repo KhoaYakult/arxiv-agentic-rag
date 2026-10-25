@@ -136,3 +136,19 @@ class TestScoreAnswer:
         s = score_answer("BLEU 38.1 [1] and [9]", chunks, ["Transformer (base model) 27.3 38.1"])
         assert s == {"markers": [1, 9], "valid": [1], "out_of_range": 1, "precise": True}
         assert score_answer("no cite", chunks, ["x"])["precise"] is False
+
+
+class TestQuotaAndErrorRow:
+    def test_is_quota_error(self):
+        from eval.check_citations import is_quota_error
+
+        assert is_quota_error(RuntimeError("Error embedding (RESOURCE_EXHAUSTED): quota"))
+        assert is_quota_error(RuntimeError("429 Too Many Requests"))
+        assert not is_quota_error(ValueError("bad json"))
+
+    def test_error_row_is_scored_as_miss(self):
+        from eval.check_citations import error_row
+
+        r = error_row({"id": "q1", "lang": "en"}, ValueError("boom | x"), 1.234)
+        assert r["id"] == "q1" and r["valid"] == [] and r["precise"] is False
+        assert "ValueError: boom" in r["error"] and "|" not in r["error"]
