@@ -48,31 +48,46 @@ def _client() -> httpx.AsyncClient:
 
 async def upload_pdf(paper_id: str, content: bytes) -> None:
     """Ghi (de neu da co) object <bucket>/<paper_id>.pdf."""
-    async with _client() as client:
-        r = await client.post(
-            f"/object/{_object_path(paper_id)}",
-            content=content,
-            headers={"Content-Type": "application/pdf", "x-upsert": "true"},
-        )
+    try:
+        async with _client() as client:
+            r = await client.post(
+                f"/object/{_object_path(paper_id)}",
+                content=content,
+                headers={"Content-Type": "application/pdf", "x-upsert": "true"},
+            )
+    except httpx.HTTPError as e:
+        raise StorageError(f"upload {paper_id}: {type(e).__name__}") from e
     if r.status_code >= 300:
         raise StorageError(f"upload {paper_id}: HTTP {r.status_code} {r.text[:200]}")
 
 
 async def signed_url(paper_id: str, expires_in: int = SIGNED_URL_TTL) -> str:
     """URL tuyet doi, ai co URL deu tai duoc PDF cho toi khi het han."""
-    async with _client() as client:
-        r = await client.post(f"/object/sign/{_object_path(paper_id)}", json={"expiresIn": expires_in})
+    try:
+        async with _client() as client:
+            r = await client.post(f"/object/sign/{_object_path(paper_id)}", json={"expiresIn": expires_in})
+    except httpx.HTTPError as e:
+        raise StorageError(f"sign {paper_id}: {type(e).__name__}") from e
     if r.status_code >= 300:
         raise StorageError(f"sign {paper_id}: HTTP {r.status_code} {r.text[:200]}")
-    signed = r.json().get("signedURL") or r.json().get("signedUrl")
-    if not signed:
+    try:
+        body = r.json()
+    except ValueError as e:
+        raise StorageError(f"sign {paper_id}: response khong phai JSON") from e
+    if not isinstance(body, dict):
+        raise StorageError(f"sign {paper_id}: response khong phai object JSON")
+    signed = body.get("signedURL") or body.get("signedUrl")
+    if not isinstance(signed, str) or not signed:
         raise StorageError(f"sign {paper_id}: response thieu signedURL")
     return f"{_base_url()}{signed}"
 
 
 async def delete_pdf(paper_id: str) -> None:
     """Xoa object; object khong ton tai (404) khong phai loi."""
-    async with _client() as client:
-        r = await client.delete(f"/object/{_object_path(paper_id)}")
+    try:
+        async with _client() as client:
+            r = await client.delete(f"/object/{_object_path(paper_id)}")
+    except httpx.HTTPError as e:
+        raise StorageError(f"delete {paper_id}: {type(e).__name__}") from e
     if r.status_code >= 300 and r.status_code != 404:
         raise StorageError(f"delete {paper_id}: HTTP {r.status_code} {r.text[:200]}")

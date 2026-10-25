@@ -62,6 +62,17 @@ class TestUpload:
         with pytest.raises(pdf_store.StorageError):
             asyncio.run(pdf_store.upload_pdf("p", b"%PDF"))
 
+    def test_transport_error_raises_storage_error(self, monkeypatch):
+        monkeypatch.setattr(settings, "supabase_url", "https://proj.supabase.co")
+        monkeypatch.setattr(settings, "supabase_service_role_key", "service-key")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("down")
+
+        monkeypatch.setattr(pdf_store, "_transport", httpx.MockTransport(handler))
+        with pytest.raises(pdf_store.StorageError):
+            asyncio.run(pdf_store.upload_pdf("p", b"%PDF"))
+
 
 class TestSignedUrl:
     def test_returns_absolute_url(self, storage):
@@ -82,6 +93,12 @@ class TestSignedUrl:
     def test_http_error_raises(self, storage):
         _, responses = storage
         responses["POST /storage/v1/object/sign/papers/p.pdf"] = httpx.Response(400, json={"error": "not_found"})
+        with pytest.raises(pdf_store.StorageError):
+            asyncio.run(pdf_store.signed_url("p"))
+
+    def test_non_json_body_raises_storage_error(self, storage):
+        _, responses = storage
+        responses["POST /storage/v1/object/sign/papers/p.pdf"] = httpx.Response(200, text="<html>")
         with pytest.raises(pdf_store.StorageError):
             asyncio.run(pdf_store.signed_url("p"))
 
