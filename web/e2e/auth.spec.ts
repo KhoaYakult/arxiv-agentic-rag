@@ -22,3 +22,12 @@ test("API without session is 401 JSON", async ({ request }) => {
   expect(r.status()).toBe(401);
   expect((await r.json()).error.code).toBe("unauthorized");
 });
+
+test("session expiring mid-use redirects to login with next", async ({ page, context }) => {
+  await login(page, "/p/arxiv-1706.03762");
+  await expect(page.getByRole("heading", { name: /Attention Is All You Need/ })).toBeVisible();
+  await context.clearCookies();
+  await page.getByLabel("Câu hỏi").fill("Câu hỏi sau khi hết phiên?");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/login\?next=%2Fp%2Farxiv-1706.03762/);
+});

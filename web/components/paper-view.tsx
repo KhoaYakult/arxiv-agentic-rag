@@ -201,6 +201,7 @@ export function PaperView({ paperId }: { paperId: string }) {
           </h1>
           {paper?.has_pdf && (
             <button
+              aria-label={pdfOpen ? "Đóng PDF" : "Mở PDF"}
               onClick={() => {
                 setPdfTarget((t) => t ?? { page: 1, quote: "", section: "", token: now() });
                 setPdfOpen((o) => !o);

@@ -28,7 +28,7 @@ test("delete asks for confirmation", async ({ page }) => {
   await expect(page).toHaveURL(/\/p\/arxiv-2401.99999$/, { timeout: 15_000 });
   await page.getByRole("button", { name: "Tùy chọn cho Paper 2401.99999" }).click();
   await page.getByRole("menuitem", { name: "Xoá bài báo" }).click();
-  await page.getByRole("button", { name: "Xoá" }).click();
+  await page.getByRole("button", { name: "Xoá", exact: true }).click();
   await expect(page).toHaveURL("http://127.0.0.1:3100/");
   await expect(page.getByRole("navigation", { name: "Bài báo" }).getByText("Paper 2401.99999")).toHaveCount(0);
 });
