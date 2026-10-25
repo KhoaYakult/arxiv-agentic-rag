@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     # Danh sach origin duoc phep goi API tu trinh duyet, phan tach bang dau phay.
     allowed_origins: str = "http://localhost:8501,http://127.0.0.1:8501"
 
+    # ── SUPABASE STORAGE (luu PDF goc cho khung xem PDF cua web UI) ──
+    # Thieu 1 trong 2 -> app/storage/pdf_store.py tu tat (has_pdf=false), app van chay.
+    # Service role key CHI dat o API (server), tuyet doi khong dua xuong trinh duyet.
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    storage_bucket: str = "papers"
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
