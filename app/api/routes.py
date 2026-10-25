@@ -185,6 +185,23 @@ def enforce_upload_limit(content: bytes, max_mb: float | None = None) -> None:
         )
 
 
+def is_quota_error(exc: BaseException) -> bool:
+    """True neu loi den tu het quota/rate limit cua nha cung cap AI (Gemini embed, Groq...).
+    LangChain hay boc loi goc trong exception khac -> duyet ca __cause__/__context__."""
+    seen = 0
+    cur: BaseException | None = exc
+    while cur is not None and seen < 5:
+        name = type(cur).__name__
+        text = str(cur).lower()
+        if "ratelimit" in name.lower() or "resourceexhausted" in name.lower():
+            return True
+        if "resource_exhausted" in text or "429" in text or "rate limit" in text:
+            return True
+        cur = cur.__cause__ or cur.__context__
+        seen += 1
+    return False
+
+
 def is_stuck(paper: dict, now: datetime | None = None) -> bool:
     """True neu paper dang 'processing' qua STUCK_JOB_AFTER ke tu created_at."""
     if paper.get("status") != "processing":
@@ -819,9 +836,15 @@ async def ask_agent(body: AskRequest) -> AskResponse:
             thread_id=thread_id,
         )
     except Exception as e:
+        print(f"[ERROR] /ask paper_id='{body.paper_id}': {type(e).__name__}: {e}", flush=True)
+        if is_quota_error(e):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Het quota dich vu AI, thu lai sau.",
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Loi Agent: {e}",
+            detail="Loi Agent.",
         )
 
     # Lay cau tra loi tu AgentState

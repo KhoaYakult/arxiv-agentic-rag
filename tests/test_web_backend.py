@@ -219,3 +219,44 @@ class TestAskSourcesCarryText:
         assert src[0]["text"] == long_text
         assert src[0]["content_preview"] == long_text[:150]
         assert src[1]["page_num"] is None
+
+
+class TestAskQuotaMapping:
+    def _client(self, monkeypatch, exc):
+        from app.agent import rag_graph
+        from app.storage import repository
+
+        async def fake_get(pid):
+            return {"paper_id": pid}
+
+        async def fake_ask(question, paper_id, thread_id):
+            raise exc
+
+        monkeypatch.setattr(repository, "get_paper", fake_get)
+        monkeypatch.setattr(rag_graph, "ask", fake_ask)
+        return make_client(monkeypatch)
+
+    def test_resource_exhausted_maps_to_429(self, monkeypatch):
+        c = self._client(monkeypatch, RuntimeError("429 RESOURCE_EXHAUSTED: embed_content_free_tier_requests"))
+        r = c.post("/api/v1/ask", json={"question": "abc?", "paper_id": "a", "thread_id": "t"})
+        assert r.status_code == 429
+
+    def test_wrapped_rate_limit_maps_to_429(self, monkeypatch):
+        class RateLimitError(Exception):
+            pass
+
+        try:
+            try:
+                raise RateLimitError("too many requests")
+            except RateLimitError as inner:
+                raise RuntimeError("chain failed") from inner
+        except RuntimeError as outer:
+            exc = outer
+        c = self._client(monkeypatch, exc)
+        assert c.post("/api/v1/ask", json={"question": "abc?", "paper_id": "a", "thread_id": "t"}).status_code == 429
+
+    def test_other_errors_are_500_without_leaking_text(self, monkeypatch):
+        c = self._client(monkeypatch, ValueError("secret-ish internal detail"))
+        r = c.post("/api/v1/ask", json={"question": "abc?", "paper_id": "a", "thread_id": "t"})
+        assert r.status_code == 500
+        assert "secret-ish" not in r.text
