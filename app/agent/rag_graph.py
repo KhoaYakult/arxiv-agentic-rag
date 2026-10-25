@@ -14,6 +14,7 @@ loop cu da dong).
 """
 
 import asyncio
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -54,6 +55,37 @@ def _text(response) -> str:
     (voi Groq content la str thuong thi `.text` == `.content`).
     """
     return str(response.text)
+
+
+# Marker trich dan trong cau tra loi: [2], [1, 3], [2-4]. CUNG grammar voi web/lib/citations.ts
+# va eval/metrics.py::citation_markers - doi 1 cho phai doi ca 3.
+CITATION_MARKER_RE = re.compile(r"\[(\d{1,3}(?:\s*[,–-]\s*\d{1,3})*)\]")
+
+
+def format_context(chunks: list[dict]) -> str:
+    """
+    Danh so [1]..[n] theo DUNG thu tu retrieved_chunks. /ask tra `sources` cung thu tu
+    nay va web UI map marker [n] -> sources[n-1]; doi thu tu o 1 ben = trich dan tro
+    sai doan.
+    """
+    blocks = []
+    for i, c in enumerate(chunks, start=1):
+        where = f"Section: {c.get('parent_section_name') or 'Unknown section'}"
+        if c.get("page_num") is not None:
+            where += f", page {c['page_num']}"
+        blocks.append(f"[{i}] ({where})\n{c['text']}")
+    return "\n\n---\n\n".join(blocks)
+
+
+def strip_citation_markers(text: str) -> str:
+    """Bo marker [n] khoi cau tra loi cu truoc khi dua vao chat history - so [n] cua luot
+    truoc tro toi chunk cua luot truoc, de lai se lam LLM trich nham so o luot nay."""
+    out = CITATION_MARKER_RE.sub("", text)
+    # Gom khoang trang thua sau khi bo marker. Chi gom khoang trang GIUA dong (sau ky tu
+    # khac whitespace) de khong pha indent cua list markdown.
+    out = re.sub(r"[ \t]+([.,;:!?])", r"\1", out)
+    out = re.sub(r"(?<=\S)[ \t]{2,}", " ", out)
+    return re.sub(r"[ \t]+$", "", out, flags=re.MULTILINE)
 FIRST_STAGE_K = 20  # so ung vien lay tu hybrid_search truoc khi rerank con 5
 
 
@@ -141,12 +173,9 @@ async def generate_node(state: AgentState) -> dict:
         if isinstance(msg, HumanMessage):
             history += f"User: {msg.content}\n"
         elif isinstance(msg, AIMessage):
-            history += f"Assistant: {msg.content}\n"
+            history += f"Assistant: {strip_citation_markers(_text(msg))}\n"
 
-    context = "\n\n---\n\n".join([
-        f"[Section: {c['parent_section_name']}]\n{c['text']}"
-        for c in state["retrieved_chunks"]
-    ])
+    context = format_context(state["retrieved_chunks"])
 
     chain = ChatPromptTemplate.from_template(RAG_ANSWER_TEMPLATE) | get_llm()
     response = await chain.ainvoke({
