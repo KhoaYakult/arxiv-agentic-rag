@@ -2,6 +2,7 @@
 
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import type { CitationRef } from "@/lib/citations";
+import { plainQuote } from "@/lib/plain-quote";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 const chipClass =
@@ -22,7 +23,7 @@ export function CitationChip({ refItem, onOpen }: { refItem: CitationRef; onOpen
       <HoverCardContent align="start" className="w-[380px] rounded-[10px] border border-border bg-popover p-4 shadow-[0_8px_24px_rgba(28,27,25,0.10)]">
         <div className="text-[12px] uppercase tracking-[0.06em] text-muted-foreground">{source.section}</div>
         <blockquote className="mt-2 line-clamp-[8] font-serif text-[15px] italic leading-[1.6]">
-          “{source.text || source.content_preview}”
+          “{plainQuote(source.text || source.content_preview)}”
         </blockquote>
         <div className="mt-3 flex items-center justify-between text-[13px] text-faint">
           <span className="tabular-nums">{source.page_num != null ? `Trang ${source.page_num}` : `Đoạn ${refItem.n}`}</span>

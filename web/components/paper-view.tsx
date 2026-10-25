@@ -12,7 +12,7 @@ import { Thinking } from "@/components/thinking";
 import { ApiCallError, api } from "@/lib/client-api";
 import { clearChat, loadChat, newThreadId, saveChat, type ChatMessage, type ChatState } from "@/lib/chat-store";
 import type { CitationRef } from "@/lib/citations";
-import { useIsMobile } from "@/lib/use-is-mobile";
+import { useIsMobile, useIsNarrow } from "@/lib/use-is-mobile";
 import { checkQuestion } from "@/lib/validate";
 
 export interface PdfTarget {
@@ -43,6 +43,7 @@ export function PaperView({ paperId }: { paperId: string }) {
   const [pdfOpen, setPdfOpen] = useState(false);
   const [sheetRef, setSheetRef] = useState<CitationRef | null>(null);
   const mobile = useIsMobile();
+  const narrow = useIsNarrow();
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -156,6 +157,8 @@ export function PaperView({ paperId }: { paperId: string }) {
     [mobile],
   );
 
+  const closePdf = useCallback(() => setPdfOpen(false), []);
+
   function newConversation() {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -263,7 +266,7 @@ export function PaperView({ paperId }: { paperId: string }) {
         </div>
       </main>
       {pdfOpen && pdfTarget && (
-        <PdfPanel paperId={paperId} target={pdfTarget} onClose={() => setPdfOpen(false)} fullscreen={mobile} />
+        <PdfPanel paperId={paperId} target={pdfTarget} onClose={closePdf} fullscreen={mobile || narrow} />
       )}
       <PdfSheet
         refItem={sheetRef}

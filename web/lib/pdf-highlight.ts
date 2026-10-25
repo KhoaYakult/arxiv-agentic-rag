@@ -7,10 +7,10 @@ const LETTER = /[a-zÀ-ɏḀ-ỿ]/;
 
 // Gach noi giua hai chu cai bi bo han o CA HAI ben ("English-to-" + "French" ngat dong va
 // "English-to-French" trong chunk deu thanh "englishtofrench"), nen khop duoc ca hai kieu.
-const INNER_HYPHEN_RE = /(?<=[a-zÀ-ɏḀ-ỿ])-(?=[a-zÀ-ɏḀ-ỿ])/g;
+const INNER_HYPHEN_RE = /([a-zÀ-ɏḀ-ỿ])-(?=[a-zÀ-ɏḀ-ỿ])/g; // khong dung lookbehind (Safari < 16.4)
 
 function norm(s: string): string {
-  return s.normalize("NFKC").toLowerCase().replace(STRIP_RE, " ").replace(INNER_HYPHEN_RE, "").replace(/\s+/g, " ");
+  return s.normalize("NFKC").toLowerCase().replace(STRIP_RE, " ").replace(INNER_HYPHEN_RE, "$1").replace(/\s+/g, " ");
 }
 
 function buildHaystack(items: string[]): { hay: string; owner: number[] } {

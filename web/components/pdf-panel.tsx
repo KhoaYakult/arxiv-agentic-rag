@@ -8,7 +8,9 @@ import "react-pdf/dist/Page/TextLayer.css";
 import type { PdfTarget } from "@/components/paper-view";
 import { ApiCallError, api } from "@/lib/client-api";
 import { findHighlight } from "@/lib/pdf-highlight";
+import { plainQuote } from "@/lib/plain-quote";
 
+// pdfjs-dist la dependency truc tiep va PHAI trung phien ban ma react-pdf ghim (xem package.json cua react-pdf).
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 
 const escapeHtml = (s: string) =>
@@ -31,6 +33,7 @@ export function PdfPanel({
   const [width, setWidth] = useState(560);
   const [seenToken, setSeenToken] = useState(target.token);
   const scroller = useRef<HTMLDivElement>(null);
+  const scrolledFor = useRef<string | null>(null); // moi (token, trang) chi cuon toi doan to 1 lan
 
   // Bam trich dan khac (token moi) -> nhay ve trang cua trich dan do. Dieu chinh state ngay luc render
   // (cach React khuyen dung thay cho useEffect + setState).
@@ -65,7 +68,7 @@ export function PdfPanel({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -81,6 +84,7 @@ export function PdfPanel({
       return null; // khong bao gio de loi to lam hong panel: coi nhu khong tim thay
     }
   }, [onTargetPage, pageItems, target.quote]);
+  const quoteText = useMemo(() => plainQuote(target.quote), [target.quote]);
   const missed = onTargetPage && pageItems !== null && pageItems.length > 0 && highlight === null;
 
   const renderText = useCallback(
@@ -88,6 +92,25 @@ export function PdfPanel({
       highlight?.has(itemIndex) ? `<mark class="pdf-mark">${escapeHtml(str)}</mark>` : escapeHtml(str),
     [highlight],
   );
+
+  const onGetText = useCallback(
+    ({ items: its }: { items: Array<{ str: string } | object> }) =>
+      setText({ page, items: its.map((it) => ("str" in it ? it.str : "")) }),
+    [page],
+  );
+
+  // Cuon (trong chinh khung scroller) toi doan to dung 1 lan cho moi token; zoom / resize / go phim
+  // re-render text layer cung khong keo lai.
+  const onTextLayerRendered = useCallback(() => {
+    const box = scroller.current;
+    const id = `${target.token}:${page}`;
+    if (!box || scrolledFor.current === id) return;
+    const mark = box.querySelector("mark.pdf-mark");
+    if (!mark) return;
+    scrolledFor.current = id;
+    const top = mark.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    box.scrollTo({ top: Math.max(0, top - box.clientHeight / 2) });
+  }, [target.token, page]);
 
   return (
     <section
@@ -111,7 +134,7 @@ export function PdfPanel({
       {missed && (
         <p role="status" className="border-b border-border bg-card px-4 py-2 text-[13px] leading-relaxed text-muted-foreground">
           Không tìm thấy vị trí chính xác của đoạn trích trên trang này. Đoạn trích:{" "}
-          <span className="font-serif italic">“{target.quote.slice(0, 220)}{target.quote.length > 220 ? "…" : ""}”</span>
+          <span className="font-serif italic">“{quoteText.slice(0, 220)}{quoteText.length > 220 ? "…" : ""}”</span>
         </p>
       )}
 
@@ -123,7 +146,10 @@ export function PdfPanel({
         ) : (
           <Document
             file={url}
-            onLoadSuccess={({ numPages: n }) => setNumPages(n)}
+            onLoadSuccess={({ numPages: n }) => {
+              setNumPages(n);
+              setRetried(false); // tai duoc roi -> lan het han sau con 1 luot thu lai
+            }}
             onLoadError={() => {
               // signed URL co the het han: lay lai dung 1 lan
               if (!retried) {
@@ -132,17 +158,20 @@ export function PdfPanel({
               } else setError("Không tải được PDF. Hãy thử lại sau.");
             }}
             loading={<p className="mt-10 text-center text-[14px] text-faint">Đang mở PDF…</p>}
+            error={<p className="mt-10 text-center text-[14px] text-muted-foreground">Không tải được PDF.</p>}
+            noData={<p className="mt-10 text-center text-[14px] text-muted-foreground">Không có dữ liệu PDF.</p>}
           >
             <Page
               key={`${page}-${target.token}`}
               pageNumber={page}
               width={width * scale}
-              className={`mx-auto w-fit shadow-[0_1px_3px_rgba(0,0,0,0.12)] ${missed ? "outline outline-2 outline-[var(--highlight)]" : ""}`}
-              onGetTextSuccess={({ items: its }) => setText({ page, items: its.map((it) => ("str" in it ? it.str : "")) })}
+              className={`mx-auto w-fit shadow-[0_1px_3px_rgba(0,0,0,0.12)] ${missed ? "outline outline-2 outline-border-strong" : ""}`}
+              loading={<p className="mt-10 text-center text-[14px] text-faint">Đang mở trang…</p>}
+              error={<p className="mt-10 text-center text-[14px] text-muted-foreground">Không hiển thị được trang này.</p>}
+              noData={<p className="mt-10 text-center text-[14px] text-muted-foreground">Không có trang này.</p>}
+              onGetTextSuccess={onGetText}
               customTextRenderer={renderText}
-              onRenderTextLayerSuccess={() => {
-                scroller.current?.querySelector("mark.pdf-mark")?.scrollIntoView({ block: "center" });
-              }}
+              onRenderTextLayerSuccess={onTextLayerRendered}
             />
           </Document>
         )}
