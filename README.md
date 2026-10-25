@@ -149,7 +149,7 @@ All routes live under `/api/v1`. When `APP_API_KEY` is set, every route except t
    - `DATABASE_URL` - Supabase Session pooler URI
    - `GEMINI_API_KEY` (embeddings + fallback LLM), optionally `GROQ_API_KEY`
    - `COHERE_API_KEY` - strongly recommended: without it (and without `sentence-transformers`, which is not installed on Vercel) reranking is disabled and chunks keep their RRF order
-   - `APP_API_KEY` - the value clients must send as `X-API-Key`
+   - `APP_API_KEY` - the value clients must send as `X-API-Key`; always set it on a production deployment, and the web project must use the same value
    - `ALLOWED_ORIGINS` - comma-separated; add the Streamlit Cloud URL (e.g. `https://your-app.streamlit.app`)
    - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` - enable storing the original PDFs for the web UI's viewer (the service role key stays on the API project only). `STORAGE_BUCKET` defaults to `papers`. Without them the API still works, but papers have `has_pdf=false`
    - optional: `GEMINI_MODEL_NAME`, `COHERE_RERANK_MODEL`, `MAX_UPLOAD_MB`
@@ -163,7 +163,7 @@ Platform limits that shaped the code:
 
 **Supabase Storage (one-time, for the web UI's PDF viewer)** - create a **private** bucket named `papers`, and run `db/migrations/2026-10-25_has_pdf.sql` in the SQL editor (adds `papers.has_pdf`; safe to re-run). Then add the two Supabase variables above to the API project and redeploy.
 
-**Web UI on Vercel (second project)** - import the same repo as a new project with **Root Directory = `web`** (framework Next.js). Set `API_BASE` (the API project's URL, without `/api/v1`), `APP_API_KEY` (same value as the API's), `ACCESS_PASSWORD` (the shared password) and `SESSION_SECRET` (32+ random characters). Limits: uploads up to 4 MB, arXiv imports up to 30 MB, and the Gemini free tier allows 1000 embeddings per day (resets around 14:00 Vietnam time, midnight Pacific). Step-by-step guide (Vietnamese): `web/README.md`.
+**Web UI on Vercel (second project)** - import the same repo as a new project with **Root Directory = `web`** (framework Next.js). Set `API_BASE` (the API project's URL, without `/api/v1`), `APP_API_KEY` (same value as the API's, which must be set in production), `ACCESS_PASSWORD` (the shared password) and `SESSION_SECRET` (32+ random characters). Limits: uploads up to 4 MB, arXiv imports up to 30 MB, and the Gemini free tier allows 1000 embeddings per day (resets at midnight Pacific: about 14:00 Vietnam time, or 15:00 after US daylight saving ends). Papers indexed before the Storage setup have `has_pdf=false`, and re-importing one returns the existing paper unchanged, so delete it and import again to get a PDF. A paper whose embedding hits the quota may end up `failed`. Step-by-step guide (Vietnamese): `web/README.md`.
 
 **Legacy UI on Streamlit Community Cloud (being retired)** - create an app from this repo with main file `ui/streamlit_app.py`; dependencies come from `ui/requirements.txt` (only `streamlit` and `requests`). In *Advanced settings -> Secrets* set:
 
@@ -195,14 +195,13 @@ CI (`.github/workflows/ci.yml`) runs `ruff` and the unit tests on every push/PR 
 
 - `app/ingestion/` - PDF parsing (`parser.py`) and parent-child chunking (`chunker.py`)
 - `app/indexing/` - embedding provider (`embeddings.py`) and reranking (`reranker.py`)
-- `app/storage/` - Postgres repository layer (`repository.py`): CRUD for papers/sections/chunks + `hybrid_search()` (dense pgvector + sparse Postgres FTS, fused with RRF)
+- `app/storage/` - Postgres repository layer (`repository.py`): CRUD for papers/sections/chunks + `hybrid_search()` (dense pgvector + sparse Postgres FTS, fused with RRF), and Supabase Storage client for the original PDFs (`pdf_store.py`, signed URLs)
 - `app/agent/` - LangGraph Corrective-RAG agent (`rag_graph.py`)
 - `app/llm/` - LLM provider factory (`llm_factory.py`) and prompt templates (`prompt_templates.py`)
 - `app/api/` - FastAPI app, routes and API-key auth
-- `app/storage/pdf_store.py` - Supabase Storage client for the original PDFs (signed URLs)
 - `web/` - Next.js web UI (shared-password private beta): pages, `/api/*` proxy route handlers, PDF viewer, Vitest and Playwright tests (Vietnamese `README.md`)
 - `db/migrations/` - one-off SQL migrations (e.g. `2026-10-25_has_pdf.sql`)
-- `ui/` - legacy Streamlit frontend (being replaced by `web/`) (`streamlit_app.py`), its own `requirements.txt` and `README.md`
+- `ui/` - legacy Streamlit frontend, being replaced by `web/` (`streamlit_app.py`, its own `requirements.txt` and `README.md`)
 - `.streamlit/config.toml` - Streamlit theme and upload limit (must stay at the repo root)
 - `eval/` - Phase 3 retrieval evaluation: golden set, metrics, runner, indexer and results (`eval/results/`)
 - `db/schema.sql` - Postgres schema
