@@ -195,7 +195,11 @@ def is_quota_error(exc: BaseException) -> bool:
         text = str(cur).lower()
         if "ratelimit" in name.lower() or "resourceexhausted" in name.lower():
             return True
-        if "resource_exhausted" in text or "429" in text or "rate limit" in text:
+        # Loi SDK co the mang ma HTTP o thuoc tinh thay vi trong text.
+        if getattr(cur, "status_code", None) == 429 or getattr(cur, "code", None) == 429:
+            return True
+        # \b429\b: khong bat nham "429" nam trong so khac (vd arXiv id 2310.04291 chua "429").
+        if "resource_exhausted" in text or re.search(r"\b429\b", text) or "rate limit" in text:
             return True
         cur = cur.__cause__ or cur.__context__
         seen += 1
