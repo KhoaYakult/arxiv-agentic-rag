@@ -60,6 +60,11 @@ describe("safeNextPath", () => {
     expect(safeNextPath("/\n/evil.com")).toBe("/");
     expect(safeNextPath("/\r/evil.com")).toBe("/");
   });
+  it("rejects dot-segment paths that normalise to a protocol-relative URL", () => {
+    expect(safeNextPath("/.//evil.com")).toBe("/");
+    expect(safeNextPath("/a/..//evil.com")).toBe("/");
+    expect(safeNextPath("/./\\evil.com")).toBe("/");
+  });
   it("keeps an encoded tab as a same-origin path", () => {
     const out = safeNextPath("/%09/x");
     expect(new URL(out, "http://x").origin).toBe("http://x");

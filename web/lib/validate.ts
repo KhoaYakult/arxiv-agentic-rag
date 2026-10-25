@@ -56,7 +56,10 @@ export function safeNextPath(p: string | null | undefined): string {
   try {
     const u = new URL(p, "http://x");
     if (u.origin !== "http://x") return "/";
-    return u.pathname + u.search + u.hash;
+    const out = u.pathname + u.search + u.hash;
+    // Dot-segment ("/.//evil.com") co the chuan hoa thanh "//evil.com" -> kiem tra lai sau khi parse.
+    if (out.startsWith("//") || out.startsWith("/\\")) return "/";
+    return out;
   } catch {
     return "/";
   }
