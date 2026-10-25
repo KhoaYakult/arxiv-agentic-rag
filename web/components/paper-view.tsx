@@ -5,11 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useShell } from "@/components/app-shell";
 import { AssistantMessage, UserMessage } from "@/components/message";
 import { Composer } from "@/components/composer";
+import { PdfPanel } from "@/components/pdf-area";
+import { PdfSheet } from "@/components/pdf-sheet";
 import { usePapers } from "@/components/papers-context";
 import { Thinking } from "@/components/thinking";
 import { ApiCallError, api } from "@/lib/client-api";
 import { clearChat, loadChat, newThreadId, saveChat, type ChatMessage, type ChatState } from "@/lib/chat-store";
 import type { CitationRef } from "@/lib/citations";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { checkQuestion } from "@/lib/validate";
 
 export interface PdfTarget {
@@ -38,6 +41,8 @@ export function PaperView({ paperId }: { paperId: string }) {
   const [pending, setPending] = useState<{ startedAt: number } | null>(null);
   const [pdfTarget, setPdfTarget] = useState<PdfTarget | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
+  const [sheetRef, setSheetRef] = useState<CitationRef | null>(null);
+  const mobile = useIsMobile();
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -54,6 +59,7 @@ export function PaperView({ paperId }: { paperId: string }) {
     setPending(null);
     setPdfOpen(false);
     setPdfTarget(null);
+    setSheetRef(null);
     /* eslint-enable react-hooks/set-state-in-effect */
     return () => {
       // doi paper / unmount: huy request dang bay
@@ -131,15 +137,24 @@ export function PaperView({ paperId }: { paperId: string }) {
     [update, send],
   );
 
-  const openCitation = useCallback((ref: CitationRef) => {
-    setPdfTarget({
-      page: ref.source.page_num ?? 1,
-      quote: ref.source.text || ref.source.content_preview,
-      section: ref.source.section,
-      token: now(),
-    });
-    setPdfOpen(true);
-  }, []);
+  const openCitation = useCallback(
+    (ref: CitationRef) => {
+      // Mobile: hien sheet trich dan truoc, PDF chi mo tu nut trong sheet.
+      if (mobile) {
+        setSheetRef(ref);
+        return;
+      }
+      // Desktop: ke ca bai khong co PDF van mo panel de panel bao "khong co ban PDF goc".
+      setPdfTarget({
+        page: ref.source.page_num ?? 1,
+        quote: ref.source.text || ref.source.content_preview,
+        section: ref.source.section,
+        token: now(),
+      });
+      setPdfOpen(true);
+    },
+    [mobile],
+  );
 
   function newConversation() {
     abortRef.current?.abort();
@@ -247,8 +262,25 @@ export function PaperView({ paperId }: { paperId: string }) {
           />
         </div>
       </main>
-      {/* Task 10: <PdfArea …/> renders here when pdfOpen && pdfTarget */}
-      {pdfOpen && pdfTarget ? null : null}
+      {pdfOpen && pdfTarget && (
+        <PdfPanel paperId={paperId} target={pdfTarget} onClose={() => setPdfOpen(false)} fullscreen={mobile} />
+      )}
+      <PdfSheet
+        refItem={sheetRef}
+        canOpenPdf={Boolean(paper?.has_pdf)}
+        onClose={() => setSheetRef(null)}
+        onOpenPdf={() => {
+          if (!sheetRef) return;
+          setPdfTarget({
+            page: sheetRef.source.page_num ?? 1,
+            quote: sheetRef.source.text || sheetRef.source.content_preview,
+            section: sheetRef.source.section,
+            token: now(),
+          });
+          setSheetRef(null);
+          setPdfOpen(true);
+        }}
+      />
     </div>
   );
 }
