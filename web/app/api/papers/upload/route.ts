@@ -1,6 +1,8 @@
 import { apiError, proxyJson } from "@/lib/backend";
 import { checkPdfFile, isLookupId } from "@/lib/validate";
 
+export const maxDuration = 60;
+
 // Kiem tra lai o server (khong tin client): <= 4 MB va dung magic bytes %PDF.
 export async function POST(request: Request) {
   const form = await request.formData().catch(() => null);

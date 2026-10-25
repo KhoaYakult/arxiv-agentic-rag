@@ -1,10 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSessionToken } from "@/lib/session";
 
 vi.mock("server-only", () => ({}));
+// next/headers khong chay ngoai request -> gia lap cookie phien (hop le mac dinh, doi cookieValue de thu 401).
+const session = vi.hoisted(() => ({ cookieValue: undefined as string | undefined }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: (n: string) => (session.cookieValue && n === "pr_session" ? { name: n, value: session.cookieValue } : undefined) }),
+}));
 
+const SECRET = "x".repeat(40);
 beforeEach(() => {
   process.env.API_BASE = "http://api.test";
   process.env.APP_API_KEY = "k";
+  process.env.SESSION_SECRET = SECRET;
+  session.cookieValue = createSessionToken(SECRET);
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -50,6 +59,15 @@ describe("POST /api/papers/arxiv", () => {
     const bad = await POST(new Request("http://web", { method: "POST", body: JSON.stringify({ arxiv_id: "../x" }) }));
     expect(bad.status).toBe(400);
   });
+  it("maps a 413 to the 30 MB arXiv message, not the 4 MB upload one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ok({ detail: "big" }, 413)));
+    const { POST } = await import("@/app/api/papers/arxiv/route");
+    const r = await POST(new Request("http://web", { method: "POST", body: JSON.stringify({ arxiv_id: "2401.15884" }) }));
+    expect(r.status).toBe(413);
+    const e = (await r.json()).error;
+    expect(e.code).toBe("arxiv_too_large");
+    expect(e.message).toBe("PDF trên arXiv lớn hơn 30 MB, chưa hỗ trợ.");
+  });
 });
 
 describe("dynamic id routes", () => {
@@ -70,5 +88,18 @@ describe("POST /api/ask", () => {
     expect(short.status).toBe(400);
     const r = await POST(new Request("http://web", { method: "POST", body: JSON.stringify({ question: "Bài nói gì?", paper_id: "p", thread_id: "t" }) }));
     expect(r.status).toBe(200);
+  });
+  it("passes the client abort signal to the backend request", async () => {
+    let upstream: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      upstream = init.signal ?? undefined;
+      return ok({ answer: "A", thread_id: "t", grade: "yes", rewrite_count: 0, sources: [] });
+    }));
+    const { POST } = await import("@/app/api/ask/route");
+    const ctl = new AbortController();
+    await POST(new Request("http://web", { method: "POST", body: JSON.stringify({ question: "Bài nói gì?", paper_id: "p", thread_id: "t" }), signal: ctl.signal }));
+    expect(upstream?.aborted).toBe(false);
+    ctl.abort();
+    expect(upstream?.aborted).toBe(true);
   });
 });

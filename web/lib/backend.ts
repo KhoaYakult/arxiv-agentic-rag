@@ -1,13 +1,16 @@
 // Goi FastAPI tu SERVER Next.js. Day la cho DUY NHAT doc API_BASE / APP_API_KEY.
 import "server-only";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 
 export type ApiErrorCode =
   | "quota_exhausted" | "too_large" | "not_pdf" | "invalid_id" | "not_found" | "timeout"
-  | "backend_down" | "unauthorized" | "bad_request" | "server_error" | "bad_password";
+  | "backend_down" | "unauthorized" | "bad_request" | "server_error" | "bad_password" | "arxiv_too_large";
 
 export const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
-  quota_exhausted: "Hết lượt xử lý miễn phí hôm nay. Hãy thử lại sau 14:00.",
+  quota_exhausted:
+    "Dịch vụ AI đang quá tải hoặc đã hết lượt miễn phí. Hãy thử lại sau ít phút; nếu vẫn lỗi, lượt miễn phí sẽ được cấp lại vào khoảng 14–15 giờ chiều.",
   too_large: "File lớn hơn 4 MB. Với bài trên arXiv, hãy dùng ô “Nhập từ arXiv”.",
   not_pdf: "File này không phải PDF hợp lệ.",
   invalid_id: "Mã bài báo không hợp lệ.",
@@ -18,6 +21,7 @@ export const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   bad_request: "Yêu cầu không hợp lệ.",
   server_error: "Máy chủ gặp lỗi. Hãy thử lại.",
   bad_password: "Sai mật khẩu, thử lại.",
+  arxiv_too_large: "PDF trên arXiv lớn hơn 30 MB, chưa hỗ trợ.",
 };
 
 export function apiError(code: ApiErrorCode, status: number): NextResponse {
@@ -30,6 +34,8 @@ export function errorFromStatus(status: number): { code: ApiErrorCode; status: n
   if (status === 404) return { code: "not_found", status: 404 };
   if (status === 400 || status === 422) return { code: "bad_request", status: 400 };
   if (status === 504) return { code: "timeout", status: 504 };
+  // 502/503 tu API (Vercel/Supabase dang tam dung hoac khoi dong lai) = tam thoi, client coi nhu offline va tu thu lai.
+  if (status === 502 || status === 503) return { code: "backend_down", status: 502 };
   // 401/403 tu FastAPI = APP_API_KEY cua web sai -> loi cau hinh server, khong phai loi phien.
   return { code: "server_error", status: 502 };
 }
@@ -39,14 +45,28 @@ function backendUrl(path: string): string {
   return `${base}${base.endsWith("/api/v1") ? "" : "/api/v1"}${path}`;
 }
 
-export async function backendFetch(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<Response> {
-  const { timeoutMs = 30_000, ...rest } = init;
+type BackendInit = Omit<RequestInit, "signal"> & { timeoutMs?: number; signal?: AbortSignal };
+
+export async function backendFetch(path: string, init: BackendInit = {}): Promise<Response> {
+  const { timeoutMs = 30_000, signal, ...rest } = init;
   const headers = new Headers(rest.headers);
   if (process.env.APP_API_KEY) headers.set("X-API-Key", process.env.APP_API_KEY);
-  return fetch(backendUrl(path), { ...rest, headers, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
+  // signal cua client (nut Dung) + timeout: huy mot trong hai la huy luon request len API.
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return fetch(backendUrl(path), {
+    ...rest, headers, cache: "no-store", signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
 }
 
-export async function proxyJson(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<NextResponse> {
+// Phong thu theo chieu sau: proxy.ts da chan, nhung route handler van tu kiem tra cookie phien.
+async function requireSession(): Promise<NextResponse | null> {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  return verifySessionToken(token, process.env.SESSION_SECRET ?? "") ? null : apiError("unauthorized", 401);
+}
+
+export async function proxyJson(path: string, init: BackendInit = {}): Promise<NextResponse> {
+  const denied = await requireSession();
+  if (denied) return denied;
   let r: Response;
   try {
     r = await backendFetch(path, init);

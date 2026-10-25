@@ -1,8 +1,19 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSessionToken } from "@/lib/session";
 
 vi.mock("server-only", () => ({}));
-const { errorFromStatus, proxyJson } = await import("@/lib/backend");
+// next/headers khong chay ngoai request -> gia lap cookie phien (hop le mac dinh, doi cookieValue de thu 401).
+const session = vi.hoisted(() => ({ cookieValue: undefined as string | undefined }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: (n: string) => (session.cookieValue && n === "pr_session" ? { name: n, value: session.cookieValue } : undefined) }),
+}));
+const { errorFromStatus, proxyJson, backendFetch } = await import("@/lib/backend");
 
+const SECRET = "x".repeat(40);
+beforeEach(() => {
+  process.env.SESSION_SECRET = SECRET;
+  session.cookieValue = createSessionToken(SECRET);
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe("errorFromStatus", () => {
@@ -15,6 +26,8 @@ describe("errorFromStatus", () => {
     [403, "server_error", 502],
     [401, "server_error", 502], // API key sai = loi cau hinh server, KHONG phai phien nguoi dung
     [504, "timeout", 504],
+    [502, "backend_down", 502], // Vercel/Supabase tam dung -> client coi nhu offline
+    [503, "backend_down", 502],
     [500, "server_error", 502],
   ])("%i -> %s", (status, code, out) => expect(errorFromStatus(status)).toEqual({ code, status: out }));
 });
@@ -54,5 +67,33 @@ describe("proxyJson", () => {
     process.env.API_BASE = "http://api.test";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
     expect((await proxyJson("/papers/a", { method: "DELETE" })).status).toBe(204);
+  });
+  it("returns 401 without calling the backend when the session cookie is missing or invalid", async () => {
+    process.env.API_BASE = "http://api.test";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    session.cookieValue = undefined;
+    const r1 = await proxyJson("/papers");
+    expect(r1.status).toBe(401);
+    expect((await r1.json()).error.code).toBe("unauthorized");
+    session.cookieValue = "123.sai";
+    expect((await proxyJson("/papers")).status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("backendFetch signal", () => {
+  it("aborts the upstream request when the client signal aborts", async () => {
+    process.env.API_BASE = "http://api.test";
+    let upstream: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      upstream = init.signal ?? undefined;
+      return new Response("{}");
+    }));
+    const client = new AbortController();
+    await backendFetch("/ask", { signal: client.signal, timeoutMs: 5000 });
+    expect(upstream?.aborted).toBe(false);
+    client.abort();
+    expect(upstream?.aborted).toBe(true);
   });
 });

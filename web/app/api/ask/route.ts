@@ -16,5 +16,6 @@ export async function POST(request: Request) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, paper_id: paperId, thread_id: threadId }),
     timeoutMs: 115_000,
+    signal: request.signal, // nut Dung o client -> huy luon request len API
   });
 }

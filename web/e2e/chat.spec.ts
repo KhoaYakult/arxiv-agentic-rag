@@ -60,7 +60,7 @@ test("429 shows the quota message and keeps the question in the composer", async
   await login(page, "/p/arxiv-1706.03762");
   await page.getByLabel("Câu hỏi").fill("gây lỗi quota đi");
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Hết lượt xử lý miễn phí hôm nay. Hãy thử lại sau 14:00.")).toBeVisible();
+  await expect(page.getByText("Dịch vụ AI đang quá tải hoặc đã hết lượt miễn phí. Hãy thử lại sau ít phút; nếu vẫn lỗi, lượt miễn phí sẽ được cấp lại vào khoảng 14–15 giờ chiều.")).toBeVisible();
   await expect(page.getByLabel("Câu hỏi")).toHaveValue("gây lỗi quota đi");
 });
 
