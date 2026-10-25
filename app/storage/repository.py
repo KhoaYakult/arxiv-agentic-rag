@@ -91,7 +91,8 @@ async def upsert_paper(
 
     created_at duoc dat lai = now() khi re-upload: GET /papers/{id}/status dung
     created_at de phat hien job 'processing' bi ket >15 phut - neu giu created_at
-    cu thi re-upload 1 paper 'failed' cu se bi danh dau failed ngay lap tuc."""
+    cu thi re-upload 1 paper 'failed' cu se bi danh dau failed ngay lap tuc.
+    has_pdf dat lai false: PDF cu tren Storage se duoc ghi de sau khi index lai xong."""
     pool = await get_pool()
     await pool.execute(
         """
@@ -103,6 +104,7 @@ async def upsert_paper(
             file_hash = EXCLUDED.file_hash,
             num_pages = EXCLUDED.num_pages,
             status = EXCLUDED.status,
+            has_pdf = false,
             created_at = now()
         """,
         paper_id, title, filename, file_hash, num_pages, status,
@@ -119,6 +121,12 @@ async def set_paper_status(paper_id: str, status: str, num_chunks: int | None = 
             "UPDATE papers SET status = $2, num_chunks = $3 WHERE paper_id = $1",
             paper_id, status, num_chunks,
         )
+
+
+async def set_has_pdf(paper_id: str, has_pdf: bool) -> None:
+    """Danh dau paper da co (hoac mat) PDF goc tren Supabase Storage."""
+    pool = await get_pool()
+    await pool.execute("UPDATE papers SET has_pdf = $2 WHERE paper_id = $1", paper_id, has_pdf)
 
 
 async def get_paper_by_hash(file_hash: str) -> dict | None:

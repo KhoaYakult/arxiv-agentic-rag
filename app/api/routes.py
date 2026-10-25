@@ -267,6 +267,7 @@ async def list_papers() -> PapersResponse:
             paper_id=row["paper_id"],
             title=row["title"],
             num_chunks=row["num_chunks"],
+            has_pdf=row.get("has_pdf", False),
         )
         for row in rows
     ]
@@ -670,6 +671,7 @@ async def get_paper_status(paper_id: str) -> PaperStatusResponse:
         title=paper["title"],
         status=paper["status"],
         num_chunks=paper["num_chunks"],
+        has_pdf=paper.get("has_pdf", False),
     )
 
 

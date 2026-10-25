@@ -26,8 +26,12 @@ CREATE TABLE IF NOT EXISTS papers (
     num_chunks  INTEGER NOT NULL DEFAULT 0,
     status      TEXT NOT NULL DEFAULT 'processing'
                 CHECK (status IN ('processing', 'ready', 'failed')),
+    has_pdf     BOOLEAN NOT NULL DEFAULT false, -- da luu PDF goc len Supabase Storage chua
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- DB tao truoc 2026-10-25 chua co cot has_pdf (CREATE TABLE IF NOT EXISTS khong them cot).
+ALTER TABLE papers ADD COLUMN IF NOT EXISTS has_pdf BOOLEAN NOT NULL DEFAULT false;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SECTIONS - ParentSection, thay the "duoc tao roi vut di" hien tai

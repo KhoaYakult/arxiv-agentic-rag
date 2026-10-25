@@ -98,6 +98,7 @@ class SourceChunk(BaseModel):
         default=None,
         description="Trang PDF chua chunk nay. None neu parser khong xac dinh duoc trang.",
     )
+    text: str = Field(default="", description="Toan van chunk (<= ~800 ky tu) - web UI dung de to dung doan trong PDF.")
 
 
 class AskResponse(BaseModel):
@@ -127,6 +128,7 @@ class PaperInfo(BaseModel):
     paper_id: str = Field(description="ID duy nhat cua bai bao.")
     title: str = Field(description="Ten bai bao (lay tu ten file PDF).")
     num_chunks: int = Field(description="So luong chunks da duoc index.")
+    has_pdf: bool = Field(default=False, description="Co ban PDF goc tren Storage de xem khong.")
 
 
 class PapersResponse(BaseModel):
@@ -151,6 +153,14 @@ class PaperStatusResponse(BaseModel):
     num_chunks: int = Field(
         description="So chunks da index. Chi co y nghia khi status='ready'."
     )
+    has_pdf: bool = Field(default=False, description="Co ban PDF goc tren Storage de xem khong.")
+
+
+class PdfUrlResponse(BaseModel):
+    """Signed URL tam thoi de trinh duyet tai PDF goc thang tu Supabase Storage."""
+
+    url: str = Field(description="URL tuyet doi, het han sau expires_in giay.")
+    expires_in: int = Field(description="So giay URL con hieu luc.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

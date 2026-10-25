@@ -239,3 +239,18 @@ class TestDeployHelpers:
             return True
 
         assert run(scenario) is True
+
+
+class TestHasPdf:
+    def test_default_false_set_true_and_reset_on_reupload(self):
+        async def scenario():
+            await seed_ready_paper("p1")
+            before = (await repository.get_paper("p1"))["has_pdf"]
+            await repository.set_has_pdf("p1", True)
+            after_set = (await repository.get_paper("p1"))["has_pdf"]
+            listed = [p["has_pdf"] for p in await repository.list_papers()]
+            await repository.upsert_paper("p1", "T", "p1.pdf")  # re-upload
+            after_reupload = (await repository.get_paper("p1"))["has_pdf"]
+            return before, after_set, listed, after_reupload
+
+        assert run(scenario) == (False, True, [True], False)
