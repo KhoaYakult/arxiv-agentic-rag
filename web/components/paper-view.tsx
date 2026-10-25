@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useShell } from "@/components/app-shell";
 import { AssistantMessage, UserMessage } from "@/components/message";
 import { Composer } from "@/components/composer";
+import { LibraryError } from "@/components/library-error";
 import { PdfPanel } from "@/components/pdf-area";
 import { PdfSheet } from "@/components/pdf-sheet";
 import { usePapers } from "@/components/papers-context";
@@ -32,8 +33,19 @@ const uid = () => crypto.randomUUID();
 // Boc Date.now de lint react-hooks/purity khong nham la goi luc render (chi goi trong handler).
 const now = () => Date.now();
 
+// Chunk khong co so trang: mo PDF o trang 1 nhung KHONG to sang (quote rong) va khong hien banner "khong tim thay".
+function pdfTargetFor(source: CitationRef["source"]): PdfTarget {
+  const hasPage = source.page_num != null;
+  return {
+    page: source.page_num ?? 1,
+    quote: hasPage ? source.text || source.content_preview : "",
+    section: source.section,
+    token: now(),
+  };
+}
+
 export function PaperView({ paperId }: { paperId: string }) {
-  const { papers, loading } = usePapers();
+  const { papers, loaded, error } = usePapers();
   const { openSidebar } = useShell();
   const paper = papers.find((p) => p.paper_id === paperId);
   const [chat, setChat] = useState<ChatState | null>(null);
@@ -146,12 +158,7 @@ export function PaperView({ paperId }: { paperId: string }) {
         return;
       }
       // Desktop: ke ca bai khong co PDF van mo panel de panel bao "khong co ban PDF goc".
-      setPdfTarget({
-        page: ref.source.page_num ?? 1,
-        quote: ref.source.text || ref.source.content_preview,
-        section: ref.source.section,
-        token: now(),
-      });
+      setPdfTarget(pdfTargetFor(ref.source));
       setPdfOpen(true);
     },
     [mobile],
@@ -175,7 +182,18 @@ export function PaperView({ paperId }: { paperId: string }) {
     if (lastUserContent) void send(lastUserContent);
   }, [lastUserContent, send]);
 
-  if (!loading && !paper) {
+  // Chi bao "khong tim thay" khi danh sach da tai thanh cong ma khong co bai nay; loi tai thi bao loi.
+  if (!paper && error) {
+    return (
+      <main className="grid h-full place-items-center px-6 text-center">
+        <div>
+          <p className="font-serif text-[22px] font-semibold">Chưa mở được bài báo</p>
+          <LibraryError className="mt-2" />
+        </div>
+      </main>
+    );
+  }
+  if (!paper && loaded) {
     return (
       <main className="grid h-full place-items-center px-6 text-center">
         <div>
@@ -271,16 +289,10 @@ export function PaperView({ paperId }: { paperId: string }) {
       )}
       <PdfSheet
         refItem={sheetRef}
-        canOpenPdf={Boolean(paper?.has_pdf)}
         onClose={() => setSheetRef(null)}
         onOpenPdf={() => {
           if (!sheetRef) return;
-          setPdfTarget({
-            page: sheetRef.source.page_num ?? 1,
-            quote: sheetRef.source.text || sheetRef.source.content_preview,
-            section: sheetRef.source.section,
-            token: now(),
-          });
+          setPdfTarget(pdfTargetFor(sheetRef.source));
           setSheetRef(null);
           setPdfOpen(true);
         }}

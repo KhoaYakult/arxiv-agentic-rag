@@ -70,7 +70,7 @@ test("paper with PDF shows the Mở PDF button (positive control)", async ({ pag
   await expect(page.getByRole("button", { name: "Mở PDF" })).toBeVisible();
 });
 
-test("paper without PDF: no Mở PDF button, chip says no PDF", async ({ page }) => {
+test("paper without PDF: no Mở PDF button, chip says no PDF", async ({ page, isMobile }) => {
   await login(page, "/p/old-paper");
   // Nut chi hien sau khi paper tai xong -> doi tieu de truoc, neu khong count 0 se dung sai ngay lap tuc.
   await expect(page.getByRole("heading", { name: /Old paper without PDF/ })).toBeVisible();
@@ -78,5 +78,7 @@ test("paper without PDF: no Mở PDF button, chip says no PDF", async ({ page })
   await page.getByLabel("Câu hỏi").fill("Bài này nói gì vậy?");
   await page.keyboard.press("Enter");
   await page.locator(".answer-prose").getByRole("button", { name: /tr\. 2/ }).click();
-  await expect(page.getByText("Bài này không có bản PDF gốc.")).toBeVisible();
+  // Mobile: sheet luon co nut mo (has_pdf co the chua kip cap nhat) -> bam xong panel moi bao khong co PDF.
+  if (isMobile) await page.getByRole("button", { name: "Mở trang 2" }).click();
+  await expect(page.getByLabel("Bản PDF").getByText("Bài này không có bản PDF gốc.")).toBeVisible();
 });

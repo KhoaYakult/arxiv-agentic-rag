@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import Link from "next/link";
 import { usePapers, type IngestJob } from "@/components/papers-context";
 
 const STEPS: { key: IngestJob["status"]; label: string }[] = [
@@ -49,6 +50,14 @@ export function IngestProgress() {
               );
             })}
           </ol>
+          {job.status === "ready" && job.paperId && (
+            <Link
+              href={`/p/${encodeURIComponent(job.paperId)}`}
+              className="mt-2 inline-flex min-h-11 items-center text-[14px] text-jade underline underline-offset-2 md:min-h-6"
+            >
+              Mở bài báo
+            </Link>
+          )}
           {job.error && <p role="alert" className="mt-2 text-[13px] leading-relaxed text-destructive">{job.error}</p>}
         </div>
       ))}

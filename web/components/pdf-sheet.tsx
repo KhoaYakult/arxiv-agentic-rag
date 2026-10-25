@@ -4,9 +4,10 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { CitationRef } from "@/lib/citations";
 import { plainQuote } from "@/lib/plain-quote";
 
+// Luon co nut mo PDF: has_pdf co the chua kip cap nhat (PDF upload sau khi 'ready'); panel tu bao 404.
 export function PdfSheet({
-  refItem, canOpenPdf, onOpenPdf, onClose,
-}: { refItem: CitationRef | null; canOpenPdf: boolean; onOpenPdf: () => void; onClose: () => void }) {
+  refItem, onOpenPdf, onClose,
+}: { refItem: CitationRef | null; onOpenPdf: () => void; onClose: () => void }) {
   return (
     <Sheet open={refItem !== null} onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="bottom" className="h-[58dvh] rounded-t-[18px] px-5 pb-[max(20px,env(safe-area-inset-bottom))] pt-3">
@@ -18,13 +19,9 @@ export function PdfSheet({
         <blockquote className="mt-2 max-h-[30dvh] overflow-y-auto font-serif text-[15px] italic leading-[1.6]">
           “{plainQuote(refItem?.source.text || refItem?.source.content_preview || "")}”
         </blockquote>
-        {canOpenPdf ? (
-          <button onClick={onOpenPdf} className="mt-4 h-12 w-full rounded-[10px] bg-primary text-[15px] font-medium text-primary-foreground">
-            {refItem?.source.page_num != null ? `Mở trang ${refItem.source.page_num}` : "Mở PDF"}
-          </button>
-        ) : (
-          <p className="mt-4 text-[13px] text-faint">Bài này không có bản PDF gốc.</p>
-        )}
+        <button onClick={onOpenPdf} className="mt-4 h-12 w-full rounded-[10px] bg-primary text-[15px] font-medium text-primary-foreground">
+          {refItem?.source.page_num != null ? `Mở trang ${refItem.source.page_num}` : "Mở PDF"}
+        </button>
       </SheetContent>
     </Sheet>
   );

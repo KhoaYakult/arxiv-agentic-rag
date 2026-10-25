@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiCallError, api } from "@/lib/client-api";
 import type { Paper, UploadResult } from "@/lib/types";
@@ -12,11 +12,15 @@ export interface IngestJob {
   status: "sending" | "processing" | "ready" | "failed";
   error?: string;
   startedAt: number;
+  // true = job xong khi nguoi dung KHONG o trang chu (khong tu chuyen trang) -> sidebar hien thong bao nho.
+  notify?: boolean;
 }
 
 interface PapersValue {
   papers: Paper[];
   loading: boolean;
+  // true sau lan tai /papers dau tien thanh cong: phan biet "thu vien trong" voi "chua tai duoc".
+  loaded: boolean;
   error: string | null;
   offline: boolean;
   refresh: () => Promise<void>;
@@ -33,7 +37,7 @@ const POLL_LIMIT_MS = 10 * 60 * 1000;
 // Backend danh dau 'ready' truoc khi set has_pdf=true (PDF upload ngay sau do) -> refresh them 1 lan.
 const HAS_PDF_REFRESH_MS = 5000;
 const FAILED_MESSAGE =
-  "Xử lý thất bại. Nguyên nhân thường gặp: hết lượt xử lý miễn phí trong ngày (thử lại sau 14:00) hoặc PDF không đọc được.";
+  "Xử lý thất bại. Nguyên nhân thường gặp: dịch vụ AI đang quá tải hoặc đã hết lượt miễn phí (hãy thử lại sau ít phút; nếu vẫn lỗi, lượt miễn phí sẽ được cấp lại vào khoảng 14–15 giờ chiều), hoặc PDF không đọc được.";
 
 export function usePapers(): PapersValue {
   const v = useContext(PapersContext);
@@ -43,8 +47,15 @@ export function usePapers(): PapersValue {
 
 export function PapersProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
+  // Poll chay trong interval dai han -> doc pathname hien tai qua ref, khong de no vao deps.
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   // Dem so lan that bai lien tiep: doi gia tri de effect backoff tu hen lai lan nua khi offline van true.
@@ -57,6 +68,7 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
     try {
       const { papers } = await api.papers();
       setPapers(papers);
+      setLoaded(true);
       setError(null);
       setOffline(false);
       setFailures(0);
@@ -66,6 +78,7 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
       if (err.code === "backend_down" || err.code === "timeout") {
         setOffline(true);
         setFailures((n) => n + 1);
+        setError(null); // banner offline da bao roi
       } else setError(err.message);
     } finally {
       setLoading(false);
@@ -121,17 +134,21 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Chi tu chuyen sang bai moi khi nguoi dung dang o trang chu; o trang khac thi bao bang notify.
+  const onTrangChu = useCallback(() => pathnameRef.current === "/", []);
+
   const onAccepted = useCallback(
     async (key: string, res: UploadResult) => {
       if (res.status === "ready") {
         patch(key, { paperId: res.paper_id, title: res.title, status: "ready" });
         await refresh();
-        router.push(`/p/${encodeURIComponent(res.paper_id)}`);
+        if (onTrangChu()) router.push(`/p/${encodeURIComponent(res.paper_id)}`);
+        else patch(key, { notify: true });
         return;
       }
       patch(key, { paperId: res.paper_id, title: res.title, status: "processing" });
     },
-    [patch, refresh, router],
+    [patch, refresh, router, onTrangChu],
   );
 
   const start = useCallback(
@@ -161,7 +178,7 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
         if (finished.current.has(job.key)) continue;
         if (Date.now() - job.startedAt > POLL_LIMIT_MS) {
           finished.current.add(job.key);
-          patch(job.key, { status: "failed", error: "Quá thời gian chờ xử lý (10 phút)." });
+          patch(job.key, { status: "failed", error: "Quá thời gian chờ xử lý (10 phút).", notify: !onTrangChu() });
           continue;
         }
         try {
@@ -172,10 +189,11 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
             patch(job.key, { status: "ready", title: s.title });
             await refresh();
             refreshLater();
-            router.push(`/p/${encodeURIComponent(s.paper_id)}`);
+            if (onTrangChu()) router.push(`/p/${encodeURIComponent(s.paper_id)}`);
+            else patch(job.key, { notify: true });
           } else if (s.status === "failed") {
             finished.current.add(job.key);
-            patch(job.key, { status: "failed", error: FAILED_MESSAGE });
+            patch(job.key, { status: "failed", error: FAILED_MESSAGE, notify: !onTrangChu() });
           }
         } catch {
           // loi mang tam thoi: lan poll sau thu lai
@@ -183,7 +201,7 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
       }
     }, POLL_MS);
     return () => clearInterval(t);
-  }, [ingests, patch, refresh, refreshLater, router]);
+  }, [ingests, patch, refresh, refreshLater, router, onTrangChu]);
 
   const removePaper = useCallback(
     async (paperId: string) => {
@@ -200,7 +218,7 @@ export function PapersProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <PapersContext.Provider
-      value={{ papers, loading, error, offline, refresh, ingests, startUpload, startArxiv, dismissIngest, removePaper }}
+      value={{ papers, loading, loaded, error, offline, refresh, ingests, startUpload, startArxiv, dismissIngest, removePaper }}
     >
       {children}
     </PapersContext.Provider>
