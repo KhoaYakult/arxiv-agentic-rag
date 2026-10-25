@@ -22,6 +22,10 @@ describe("session token", () => {
     expect(verifySessionToken(undefined, SECRET, NOW)).toBe(false);
     expect(verifySessionToken(t, "", NOW)).toBe(false);
   });
+  it("does not verify with a secret shorter than 32 chars", () => {
+    const weak = "short-key!";
+    expect(verifySessionToken(createSessionToken(weak, NOW), weak, NOW)).toBe(false);
+  });
   it("expires after 30 days and rejects future tokens", () => {
     const t = createSessionToken(SECRET, NOW);
     expect(verifySessionToken(t, SECRET, NOW + SESSION_MAX_AGE_S * 1000 + 1000)).toBe(false);

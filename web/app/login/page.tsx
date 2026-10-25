@@ -4,6 +4,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { BRAND } from "@/lib/brand";
+import { safeNextPath } from "@/lib/validate";
 
 function LoginForm() {
   const router = useRouter();
@@ -27,7 +28,7 @@ function LoginForm() {
         setError(body?.error?.message ?? "Không đăng nhập được. Thử lại.");
         return;
       }
-      router.replace(body.next ?? "/");
+      router.replace(safeNextPath(body.next)); // phong thu them: khong tin hoan toan server
       router.refresh();
     } catch {
       setError("Không kết nối được máy chủ. Kiểm tra mạng và thử lại.");

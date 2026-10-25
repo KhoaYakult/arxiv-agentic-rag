@@ -10,8 +10,15 @@ export async function POST(request: Request) {
     await new Promise((r) => setTimeout(r, 500)); // lam cham do mat khau
     return apiError("bad_password", 401);
   }
+  let token: string;
+  try {
+    token = createSessionToken(sessionSecret());
+  } catch {
+    console.error("[login] SESSION_SECRET thieu hoac ngan hon 32 ky tu");
+    return apiError("server_error", 500);
+  }
   const res = NextResponse.json({ ok: true, next: safeNextPath(typeof body?.next === "string" ? body.next : null) });
-  res.cookies.set(SESSION_COOKIE, createSessionToken(sessionSecret()), {
+  res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

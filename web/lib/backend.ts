@@ -55,7 +55,15 @@ export async function proxyJson(path: string, init: RequestInit & { timeoutMs?: 
     return timedOut ? apiError("timeout", 504) : apiError("backend_down", 502);
   }
   if (r.status === 204) return new NextResponse(null, { status: 204 });
-  if (r.ok) return NextResponse.json(await r.json(), { status: r.status });
+  if (r.ok) {
+    try {
+      return NextResponse.json(await r.json(), { status: r.status });
+    } catch (err) {
+      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      if (!timedOut) console.error(`[backend] ${path} -> HTTP ${r.status} nhung body khong phai JSON`);
+      return timedOut ? apiError("timeout", 504) : apiError("server_error", 502);
+    }
+  }
   const e = errorFromStatus(r.status);
   if (e.code === "server_error") console.error(`[backend] ${path} -> HTTP ${r.status}`);
   return apiError(e.code, e.status);

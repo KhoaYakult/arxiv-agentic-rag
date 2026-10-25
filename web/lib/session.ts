@@ -15,7 +15,7 @@ export function createSessionToken(secret: string, nowMs: number = Date.now()): 
 }
 
 export function verifySessionToken(token: string | undefined, secret: string, nowMs: number = Date.now()): boolean {
-  if (!token || !secret) return false;
+  if (!token || secret.length < 32) return false; // secret yeu -> khong tin cookie nao
   const parts = token.split(".");
   if (parts.length !== 2) return false;
   const [issuedAt, given] = parts;

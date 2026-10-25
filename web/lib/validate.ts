@@ -49,7 +49,15 @@ export function checkQuestion(q: string): string | null {
 }
 
 // Chi cho phep duong dan cung origin sau khi dang nhap (chong open redirect).
+// Trinh duyet bo qua tab/CR/LF nen "/\t/evil.com" se thanh "//evil.com" -> chan ky tu dieu khien.
 export function safeNextPath(p: string | null | undefined): string {
-  if (!p || !p.startsWith("/") || p.startsWith("//") || p.startsWith("/\\")) return "/";
-  return p;
+  if (!p || /[\u0000-\u001f\u007f]/.test(p)) return "/";
+  if (!p.startsWith("/") || p.startsWith("//") || p.startsWith("/\\")) return "/";
+  try {
+    const u = new URL(p, "http://x");
+    if (u.origin !== "http://x") return "/";
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return "/";
+  }
 }

@@ -55,4 +55,14 @@ describe("safeNextPath", () => {
     expect(safeNextPath("https://evil.com")).toBe("/");
     expect(safeNextPath(null)).toBe("/");
   });
+  it("rejects control characters that browsers strip (tab/CR/LF)", () => {
+    expect(safeNextPath("/\t/evil.com")).toBe("/");
+    expect(safeNextPath("/\n/evil.com")).toBe("/");
+    expect(safeNextPath("/\r/evil.com")).toBe("/");
+  });
+  it("keeps an encoded tab as a same-origin path", () => {
+    const out = safeNextPath("/%09/x");
+    expect(new URL(out, "http://x").origin).toBe("http://x");
+    expect(out.startsWith("//")).toBe(false);
+  });
 });

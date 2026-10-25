@@ -12,6 +12,7 @@ describe("errorFromStatus", () => {
     [404, "not_found", 404],
     [400, "bad_request", 400],
     [422, "bad_request", 400],
+    [403, "server_error", 502],
     [401, "server_error", 502], // API key sai = loi cau hinh server, KHONG phai phien nguoi dung
     [504, "timeout", 504],
     [500, "server_error", 502],
@@ -41,6 +42,13 @@ describe("proxyJson", () => {
     const r2 = await proxyJson("/papers");
     expect(r2.status).toBe(502);
     expect((await r2.json()).error.code).toBe("backend_down");
+  });
+  it("maps a 200 with a non-JSON body to server_error", async () => {
+    process.env.API_BASE = "http://api.test";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>oops</html>", { status: 200 })));
+    const r = await proxyJson("/papers");
+    expect(r.status).toBe(502);
+    expect((await r.json()).error.code).toBe("server_error");
   });
   it("returns 204 without a body", async () => {
     process.env.API_BASE = "http://api.test";
