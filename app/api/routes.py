@@ -83,6 +83,7 @@ from app.api.schemas import (
     PaperInfo,
     PapersResponse,
     PaperStatusResponse,
+    PdfUrlResponse,
     SourceChunk,
     UploadResponse,
 )
@@ -278,6 +279,24 @@ async def list_papers() -> PapersResponse:
 # ENDPOINT 3: UPLOAD PDF
 # ──────────────────────────────────────────────────────────────────────────────
 
+async def _store_pdf(pdf_path: Path, paper_id: str) -> None:
+    """
+    Luu PDF goc len Supabase Storage SAU khi index xong (web UI can de hien PDF).
+    KHONG BAO GIO raise: Storage loi thi paper van 'ready', chi khong co has_pdf -
+    khung PDF tren UI se bao "khong co ban PDF goc" thay vi hong ca bai.
+    """
+    from app.storage import pdf_store, repository
+
+    if not pdf_store.is_enabled():
+        return
+    try:
+        content = await asyncio.to_thread(pdf_path.read_bytes)
+        await pdf_store.upload_pdf(paper_id, content)
+        await repository.set_has_pdf(paper_id, True)
+    except Exception as e:
+        print(f"[WARN] Khong luu duoc PDF '{paper_id}' len Storage: {e}", flush=True)
+
+
 async def _process_and_index_paper(pdf_path: Path, paper_id: str) -> None:
     """
     Chay NEN sau khi /upload da tra response 202 - khong con request nao dang
@@ -312,6 +331,7 @@ async def _process_and_index_paper(pdf_path: Path, paper_id: str) -> None:
         section_pk_map = await repository.insert_sections(paper_id, sections)
         await repository.insert_chunks(paper_id, chunks, embeddings, section_pk_map)
         await repository.set_paper_status(paper_id, status="ready", num_chunks=len(chunks))
+        await _store_pdf(pdf_path, paper_id)
     except Exception as e:
         print(f"[ERROR] Xu ly nen paper_id='{paper_id}' that bai: {e}", flush=True)
         try:
@@ -675,6 +695,41 @@ async def get_paper_status(paper_id: str) -> PaperStatusResponse:
     )
 
 
+@protected.get(
+    "/papers/{paper_id}/pdf-url",
+    response_model=PdfUrlResponse,
+    summary="Signed URL de xem PDF goc",
+    tags=["Papers"],
+    responses={
+        404: {"description": "Khong co paper, paper khong co PDF, hoac Storage chua cau hinh."},
+        502: {"description": "Supabase Storage loi."},
+    },
+)
+async def get_pdf_url(paper_id: str) -> PdfUrlResponse:
+    """
+    Tra signed URL (het han sau 1 gio) de trinh duyet tai PDF thang tu Supabase
+    Storage - PDF khong di qua API vi Vercel cat response > 4.5 MB.
+    """
+    from app.storage import pdf_store, repository
+
+    validate_lookup_id(paper_id)
+    paper = await repository.get_paper(paper_id)
+    if paper is None or not paper.get("has_pdf") or not pdf_store.is_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bai nay khong co ban PDF goc.",
+        )
+    try:
+        url = await pdf_store.signed_url(paper_id)
+    except Exception as e:
+        print(f"[ERROR] Khong tao duoc signed URL cho '{paper_id}': {e}", flush=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Khong lay duoc link PDF tu Storage.",
+        )
+    return PdfUrlResponse(url=url, expires_in=pdf_store.SIGNED_URL_TTL)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # ENDPOINT 3c: XOA 1 PAPER
 # ──────────────────────────────────────────────────────────────────────────────
@@ -708,6 +763,15 @@ async def delete_paper(paper_id: str) -> None:
         )
 
     await repository.delete_paper(paper_id)
+
+    from app.storage import pdf_store
+
+    if pdf_store.is_enabled():
+        try:
+            await pdf_store.delete_pdf(paper_id)
+        except Exception as e:
+            # Row da xoa -> object mo coi chi ton dung luong, khong anh huong nguoi dung.
+            print(f"[WARN] Khong xoa duoc PDF '{paper_id}' tren Storage: {e}", flush=True)
 
     pdf_path = settings.data_dir / f"{paper_id}.pdf"
     if pdf_path.exists():
@@ -772,6 +836,7 @@ async def ask_agent(body: AskRequest) -> AskResponse:
             section=chunk.get("parent_section_name", "Unknown section"),
             content_preview=chunk.get("text", "")[:150],
             page_num=chunk.get("page_num"),
+            text=chunk.get("text", ""),
         )
         for chunk in raw_chunks
     ]

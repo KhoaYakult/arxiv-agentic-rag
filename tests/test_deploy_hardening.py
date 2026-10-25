@@ -293,6 +293,9 @@ class TestIndexJobDoesNotBlockEventLoop:
         )
         for name in ("insert_sections", "insert_chunks", "set_paper_status"):
             monkeypatch.setattr(repository, name, noop)
+        from app.storage import pdf_store
+
+        monkeypatch.setattr(pdf_store, "is_enabled", lambda: False)
 
     def test_loop_keeps_ticking_during_sync_work(self, monkeypatch):
         import asyncio
