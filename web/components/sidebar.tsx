@@ -1,0 +1,133 @@
+"use client";
+
+import { MoreHorizontal, Plus, LogOut, PanelLeftClose } from "lucide-react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
+import { usePapers } from "@/components/papers-context";
+import { BRAND } from "@/lib/brand";
+import { api } from "@/lib/client-api";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import type { Paper } from "@/lib/types";
+
+export function Sidebar({ onNavigate, onCollapse }: { onNavigate?: () => void; onCollapse?: () => void }) {
+  const { papers, loading, removePaper } = usePapers();
+  const params = useParams<{ paperId?: string }>();
+  const router = useRouter();
+  const activeId = params?.paperId ? decodeURIComponent(params.paperId) : null;
+  const [confirm, setConfirm] = useState<Paper | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function logout() {
+    await api.logout().catch(() => undefined);
+    router.replace("/login");
+  }
+
+  return (
+    <aside className="flex h-full w-[264px] flex-col border-r border-border bg-muted px-3 py-4">
+      <div className="flex items-center justify-between px-2 pb-4">
+        <Link href="/" onClick={onNavigate} className="flex items-center gap-2 text-[15px] font-semibold">
+          <span className="grid size-[22px] place-items-center rounded-[6px] bg-primary font-serif text-[14px] text-primary-foreground">
+            {BRAND.mark}
+          </span>
+          {BRAND.name}
+        </Link>
+        {onCollapse && (
+          <button onClick={onCollapse} aria-label="Thu gọn thanh bên" className="grid size-7 place-items-center rounded-[6px] text-faint hover:bg-accent">
+            <PanelLeftClose className="size-4" />
+          </button>
+        )}
+      </div>
+      <Link
+        href="/"
+        onClick={onNavigate}
+        className="mb-4 flex h-11 items-center gap-2 rounded-[6px] border border-border bg-card px-2.5 text-[14px] font-medium hover:border-border-strong md:h-9"
+      >
+        <Plus className="size-4" /> Thêm bài báo
+      </Link>
+      <div className="px-2.5 pb-1.5 text-[12px] text-faint">Thư viện</div>
+      <nav className="-mx-1 flex-1 overflow-y-auto px-1" aria-label="Bài báo">
+        {loading && <div className="px-2.5 py-2 text-[13px] text-faint">Đang tải…</div>}
+        {!loading && papers.length === 0 && <div className="px-2.5 py-2 text-[13px] text-faint">Chưa có bài báo nào</div>}
+        {papers.map((p) => {
+          const active = p.paper_id === activeId;
+          return (
+            <div
+              key={p.paper_id}
+              className={`group relative flex items-start rounded-[6px] ${active ? "bg-card shadow-[inset_0_0_0_1px_var(--border)]" : "hover:bg-accent"}`}
+            >
+              <Link
+                href={`/p/${encodeURIComponent(p.paper_id)}`}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
+                className="min-w-0 flex-1 px-2.5 py-2"
+              >
+                <span className={`line-clamp-2 text-[14px] leading-snug ${active ? "text-foreground" : "text-muted-foreground"}`}>
+                  {p.title}
+                </span>
+                <span className="mt-0.5 block truncate font-mono text-[12px] text-faint">{p.paper_id}</span>
+              </Link>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label={`Tùy chọn cho ${p.title}`}
+                    className="mr-1 mt-1.5 grid size-11 shrink-0 place-items-center rounded-[6px] text-faint opacity-100 hover:bg-accent md:size-7 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem className="text-destructive" onSelect={() => setConfirm(p)}>
+                    Xoá bài báo
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          );
+        })}
+      </nav>
+      <div className="mt-2 flex items-center justify-between border-t border-border px-2.5 pt-3 text-[13px] text-faint">
+        <span>{papers.length} bài báo</span>
+        <button onClick={logout} className="flex min-h-11 items-center gap-1.5 rounded-[6px] px-1.5 py-1 hover:bg-accent hover:text-foreground md:min-h-6">
+          <LogOut className="size-3.5" /> Đăng xuất
+        </button>
+      </div>
+
+      <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && (setConfirm(null), setDeleteError(null))}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xoá bài báo này?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{confirm?.title}” và mọi đoạn đã lập chỉ mục sẽ bị xoá. Không hoàn tác được.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && <p className="text-[13px] text-destructive">{deleteError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Huỷ</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!confirm) return;
+                try {
+                  await removePaper(confirm.paper_id);
+                  if (confirm.paper_id === activeId) router.replace("/");
+                  setConfirm(null);
+                } catch (err) {
+                  setDeleteError((err as Error).message);
+                }
+              }}
+            >
+              Xoá
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </aside>
+  );
+}
