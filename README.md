@@ -141,6 +141,8 @@ All routes live under `/api/v1`. When `APP_API_KEY` is set, every route except t
 
 ## Deploy
 
+> **Deploy order:** run `db/migrations/2026-10-25_has_pdf.sql` on Supabase **before** pushing/deploying this version of the API (pushing `main` auto-deploys it). Otherwise uploads and arXiv imports fail (500), because `upsert_paper` now writes `has_pdf`.
+
 **API on Vercel (Hobby plan)** - the FastAPI app is deployed as a single Python function.
 
 1. Import the GitHub repo in Vercel. `vercel.json` defines one `api` service (FastAPI, entrypoint `app.api.main:app`, `maxDuration` 300 s, `excludeFiles` to keep the bundle small, a rewrite of all paths to the service and a daily cron). `.python-version` pins Python 3.12.

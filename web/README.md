@@ -78,6 +78,8 @@ Cần chạy `npm ci` trước (như trên). Bộ e2e chạy trên **mock backen
 
 ## 4. Deploy
 
+> **Chạy `db/migrations/2026-10-25_has_pdf.sql` trên Supabase TRƯỚC khi push/deploy phiên bản API này.** Push `main` sẽ tự deploy API, mà `upsert_paper` giờ ghi cột `has_pdf`; chưa migrate thì upload và nhập arXiv đều lỗi 500.
+
 Thứ tự quan trọng: làm Supabase trước, rồi API, rồi mới tới web.
 
 **a. Supabase**
