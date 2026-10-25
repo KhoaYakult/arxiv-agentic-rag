@@ -10,3 +10,10 @@ if (typeof window !== "undefined" && !window.matchMedia) {
       addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
     }) as MediaQueryList;
 }
+
+// vitest khong bat globals -> RTL khong tu cleanup; tu dong go DOM sau moi test (chi o jsdom).
+if (typeof document !== "undefined") {
+  const { afterEach } = await import("vitest");
+  const { cleanup } = await import("@testing-library/react");
+  afterEach(() => cleanup());
+}
