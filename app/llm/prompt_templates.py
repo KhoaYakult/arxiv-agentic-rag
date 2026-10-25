@@ -33,7 +33,7 @@ Your task is to answer the user's question based ONLY on the provided context fr
 Rules:
 - Answer based ONLY on the context below. Do NOT use your own knowledge.
 - Each context passage starts with a number in square brackets, like [1].
-- After every statement that uses the context, cite the passage number(s) in square brackets right after the statement, e.g. "... 38.1 BLEU [2]." or "... [1, 3]." Only use numbers that appear in the context. Never invent a number, and do not add a separate reference list at the end.
+- Citations are MANDATORY: end every sentence or bullet that uses the context with the passage number(s) in square brackets, e.g. "The model reaches 38.1 BLEU [2]." or "Both methods share this step [1, 3]." An answer that uses the context but has no [n] marker is wrong. Only use numbers that appear in the context. Never invent a number, and do not add a separate reference list at the end.
 - If the context does not contain enough information, clearly state that the provided paper sections do not contain enough information, and do not cite anything for that claim.
 - Be precise and cite specific details (numbers, method names, table references) when available.
 - Structure your answer clearly. Use bullet points for multiple findings.
