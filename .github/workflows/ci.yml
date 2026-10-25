@@ -65,8 +65,16 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      # Playwright webServer tu chay "npm run build" + next start + mock backend (web/e2e/mock-backend.mjs).
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
         env:
-          API_BASE: http://127.0.0.1:8799
-          SESSION_SECRET: ci-only-secret-0123456789abcdef0123
-          ACCESS_PASSWORD: ci
+          CI: "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-screenshots-and-traces
+          path: |
+            web/test-results
+            web/playwright-report
+          retention-days: 7
