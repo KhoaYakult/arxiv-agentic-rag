@@ -3,7 +3,7 @@
 -- Chay 1 lan qua Supabase SQL Editor (Project -> SQL Editor -> New query -> paste -> Run).
 -- Idempotent: dung IF NOT EXISTS xuyen suot, chay lai nhieu lan khong loi.
 --
--- Xem docs/ROADMAP.md muc "Phase 2" de biet ly do cac quyet dinh (vi sao paper_id
+-- Xem docs/2-LO-TRINH.md muc 2.2 "Phase 2" de biet ly do cac quyet dinh (vi sao paper_id
 -- la text PK thay vi UUID, vi sao chunks co ca embedding lan fts trong 1 bang, ...)
 
 CREATE EXTENSION IF NOT EXISTS vector;
