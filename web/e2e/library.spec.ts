@@ -32,3 +32,16 @@ test("delete asks for confirmation", async ({ page }) => {
   await expect(page).toHaveURL("http://127.0.0.1:3100/");
   await expect(page.getByRole("navigation", { name: "Bài báo" }).getByText("Paper 2401.99999")).toHaveCount(0);
 });
+
+test("collapsed sidebar's expand button does not cover the paper title", async ({ page }) => {
+  await login(page, "/p/arxiv-1706.03762");
+  const title = page.getByRole("heading", { name: /Attention Is All You Need/ });
+  await expect(title).toBeVisible();
+  await page.getByRole("button", { name: "Thu gọn thanh bên" }).click();
+  const expand = page.getByRole("button", { name: "Mở thanh bên" });
+  await expect(expand).toBeVisible();
+  const b = (await expand.boundingBox())!;
+  const t = (await title.boundingBox())!;
+  // Nut noi (absolute) o goc trai: tieu de phai bat dau ben phai nut, khong chong len nhau.
+  expect(t.x).toBeGreaterThanOrEqual(b.x + b.width);
+});

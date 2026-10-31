@@ -46,7 +46,7 @@ function pdfTargetFor(source: CitationRef["source"]): PdfTarget {
 
 export function PaperView({ paperId }: { paperId: string }) {
   const { papers, loaded, error } = usePapers();
-  const { openSidebar } = useShell();
+  const { openSidebar, sidebarCollapsed } = useShell();
   const paper = papers.find((p) => p.paper_id === paperId);
   const [chat, setChat] = useState<ChatState | null>(null);
   const [draft, setDraft] = useState("");
@@ -209,7 +209,10 @@ export function PaperView({ paperId }: { paperId: string }) {
   return (
     <div className="flex h-full min-w-0">
       <main className="flex min-w-0 flex-1 flex-col md:min-w-[420px]">
-        <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-3 md:px-6">
+        {/* Thanh ben thu gon: nut "Mo thanh ben" noi o goc trai (app-shell), chua cho de khong de len tieu de. */}
+        <header
+          className={`flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-3 md:px-6 ${sidebarCollapsed ? "md:pl-14" : ""}`}
+        >
           <button onClick={openSidebar} aria-label="Mở thư viện" className="grid size-11 place-items-center rounded-[8px] md:hidden">
             <Menu className="size-5" />
           </button>
