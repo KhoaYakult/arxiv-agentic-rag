@@ -2,7 +2,7 @@
 
 Giao diện đọc bài báo cho ArXiv Agentic RAG: thư viện bài, hội thoại hỏi đáp có trích dẫn, và khung xem PDF gốc với đoạn trích được tô sáng khi bấm vào số trang. Đây là bản thay thế cho giao diện Streamlit trước đây.
 
-Tên sản phẩm "Paper Reader" chỉ là **tên tạm**, nằm duy nhất ở `web/lib/brand.ts`. Đây chỉ là chỗ giữ tên (placeholder), phải đặt tên thật trước khi ra mắt công khai.
+Tên sản phẩm "HelperReader" là **tên làm việc**, nằm duy nhất ở `web/lib/brand.ts`. Kiểm tra trùng tên trước khi ra mắt công khai.
 
 Công nghệ: Next.js 16.4 (App Router, `proxy.ts`), React 19, Tailwind 4, shadcn/ui (Radix), react-pdf 11, react-markdown.
 
@@ -121,4 +121,4 @@ Thêm hai biến `SUPABASE_URL` (Project URL ở bước a.3) và `SUPABASE_SERV
 - **Quota embedding Gemini miễn phí: 1.000 lượt mỗi ngày**, đặt lại vào nửa đêm giờ Pacific (khoảng 14:00, hoặc 15:00 sau khi Mỹ hết giờ mùa hè, theo giờ Việt Nam). Mỗi đoạn văn được embed một lần (khoảng vài chục đến vài trăm lượt mỗi bài), nên nhập vài bài liên tiếp có thể chạm trần; bài chạm quota khi embed có thể bị `failed` (thông báo trong app chỉ nêu các nguyên nhân thường gặp, vì API không trả lý do lỗi) và `/ask` trả 429 nếu quota AI hết.
 - **Hàm Vercel tối đa 300 giây.** Nếu việc index bị cắt giữa chừng, bài kẹt ở `processing` và được báo `failed` sau 15 phút.
 - **Chất lượng trích dẫn chưa đạt mục tiêu.** Xem phần Evaluation trong README gốc: mô hình không bịa số trích dẫn nhưng hay bỏ sót, nên không phải câu trả lời nào cũng có chip `[n]`. Hàng nguồn dưới mỗi câu trả lời luôn hiện đủ.
-- **Tên "Paper Reader" là tên tạm** (`web/lib/brand.ts`), phải đổi trước khi công khai.
+- **Tên "HelperReader" là tên làm việc** (`web/lib/brand.ts`), kiểm tra trùng tên trước khi công khai.
