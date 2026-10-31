@@ -6,7 +6,6 @@ Corrective-RAG (CRAG) question-answering system over scientific PDF papers. Uplo
 flowchart TD
     subgraph CLIENT ["Client and API"]
         WEB["Web UI: Next.js<br/>(own Vercel project)"] -->|"HTTPS + X-API-Key<br/>(added server-side)"| API["FastAPI<br/>(Vercel)"]
-        ST["Streamlit UI<br/>(being retired)"] -.->|"HTTPS + X-API-Key"| API
         WEB -.->|"signed URL"| STORE[("Supabase Storage<br/>original PDFs")]
     end
 
@@ -38,8 +37,8 @@ flowchart TD
 ## Status
 
 - **Phase 1 (hardening) and Phase 2 (one Postgres for everything) are done.** Supabase Postgres + pgvector, Gemini embeddings, Postgres full-text search, Postgres-backed chat memory.
-- **Web UI (new):** a Next.js app in `web/` (library, chat with clickable page citations, side-by-side PDF viewer that highlights the quoted passage), deployed as its own Vercel project. It is a private beta behind one shared password, and its server-side route handlers add the API key, so the key never reaches the browser. The Streamlit UI in `ui/` is being retired and will be removed once the web app has run stably. See [`web/README.md`](web/README.md) (Vietnamese) for running and deploying it. "Paper Reader" is a temporary product name (it collides with an existing iOS app) and must change before any public launch.
-- **Deployed:** API on Vercel; the Streamlit UI on Streamlit Community Cloud until the web app replaces it. The API is protected by an `X-API-Key` header and the UIs are private, so there is no public demo link.
+- **Web UI:** a Next.js app in `web/` (library, chat with clickable page citations, side-by-side PDF viewer that highlights the quoted passage), deployed as its own Vercel project. It is a private beta behind one shared password, and its server-side route handlers add the API key, so the key never reaches the browser. It replaced the earlier Streamlit UI. See [`web/README.md`](web/README.md) (Vietnamese) for running and deploying it. "Paper Reader" is a temporary product name (it collides with an existing iOS app) and must change before any public launch.
+- **Deployed:** API and web UI on Vercel. The API is protected by an `X-API-Key` header and the web UI is private, so there is no public demo link.
 - **Known gap, citations:** the model never invents citation numbers, but it often leaves them out. Only 10/21 answers carry a valid `[n]` marker, well under the 80% target (see [Evaluation](#evaluation)). Every answer still shows its sources row, so the evidence is always visible. Improving marker coverage is the next step.
 - **Phase 3 (evaluation) is in progress:** a golden set and a retrieval benchmark exist and have already driven two fixes (see [Evaluation](#evaluation)). Still to do: answer-quality evaluation (RAGAS / LLM judge), language-aware sparse search, a parser comparison.
 - Planned after that: multi-paper querying, RAPTOR-style summaries, production polish (rate limiting, streaming).
@@ -53,9 +52,9 @@ flowchart TD
 - **Agent**: LangGraph Corrective-RAG (`retrieve -> grade -> rewrite-if-insufficient -> generate`), chat memory in Postgres (`AsyncPostgresSaver`)
 - **LLM**: Groq (primary) with automatic runtime fallback to Gemini
 - **Backend**: FastAPI
-- **Frontend**: Next.js 16 + React 19 + Tailwind 4 + shadcn/ui, react-pdf for the viewer (`web/`); the legacy Streamlit UI (`ui/`) is being retired
+- **Frontend**: Next.js 16 + React 19 + Tailwind 4 + shadcn/ui, react-pdf for the viewer (`web/`)
 - **Storage**: Supabase Storage (private bucket) keeps the original PDFs for the viewer
-- **Deploy**: Vercel (API and web UI as two projects) + Streamlit Community Cloud (legacy UI)
+- **Deploy**: Vercel (API and web UI as two projects)
 
 ## Evaluation
 
@@ -107,12 +106,7 @@ cp .env.example .env   # fill in DATABASE_URL, GROQ_API_KEY, GEMINI_API_KEY, COH
 # API (from repo root, auto-reloads)
 make run        # uvicorn app.api.main:app --reload --port 8000
 # Swagger UI: http://localhost:8000/docs
-
-# UI (separate process, calls the API over HTTP)
-make ui         # streamlit run ui/streamlit_app.py
 ```
-
-The Streamlit UI finds the API through `API_BASE` (environment variable, then Streamlit secrets, then `http://127.0.0.1:8000`) and sends `APP_API_KEY` as `X-API-Key` when set. See `ui/README.md` (Vietnamese) for details.
 
 ```bash
 # Web UI (Next.js, needs the API running)
@@ -152,7 +146,7 @@ All routes live under `/api/v1`. When `APP_API_KEY` is set, every route except t
    - `GEMINI_API_KEY` (embeddings + fallback LLM), optionally `GROQ_API_KEY`
    - `COHERE_API_KEY` - strongly recommended: without it (and without `sentence-transformers`, which is not installed on Vercel) reranking is disabled and chunks keep their RRF order
    - `APP_API_KEY` - the value clients must send as `X-API-Key`; always set it on a production deployment, and the web project must use the same value
-   - `ALLOWED_ORIGINS` - comma-separated; add the Streamlit Cloud URL (e.g. `https://your-app.streamlit.app`)
+   - optional `ALLOWED_ORIGINS` - comma-separated browser origins allowed to call the API directly; the web UI calls it server-side, so it needs none
    - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` - enable storing the original PDFs for the web UI's viewer (the service role key stays on the API project only). `STORAGE_BUCKET` defaults to `papers`. Without them the API still works, but papers have `has_pdf=false`
    - optional: `GEMINI_MODEL_NAME`, `COHERE_RERANK_MODEL`, `MAX_UPLOAD_MB`
 4. The cron in `vercel.json` calls `GET /api/v1/health/db` daily at 06:00 UTC (production deployments only).
@@ -166,15 +160,6 @@ Platform limits that shaped the code:
 **Supabase Storage (one-time, for the web UI's PDF viewer)** - create a **private** bucket named `papers`, and run `db/migrations/2026-10-25_has_pdf.sql` in the SQL editor (adds `papers.has_pdf`; safe to re-run). Then add the two Supabase variables above to the API project and redeploy.
 
 **Web UI on Vercel (second project)** - import the same repo as a new project with **Root Directory = `web`** (framework Next.js). Set `API_BASE` (the API project's URL, without `/api/v1`), `APP_API_KEY` (same value as the API's, which must be set in production), `ACCESS_PASSWORD` (the shared password) and `SESSION_SECRET` (32+ random characters). Limits: uploads up to 4 MB, arXiv imports up to 30 MB, and the Gemini free tier allows 1000 embeddings per day (resets at midnight Pacific: about 14:00 Vietnam time, or 15:00 after US daylight saving ends). Papers indexed before the Storage setup have `has_pdf=false`, and re-importing one returns the existing paper unchanged, so delete it and import again to get a PDF. A paper whose embedding hits the quota may end up `failed`. Step-by-step guide (Vietnamese): `web/README.md`.
-
-**Legacy UI on Streamlit Community Cloud (being retired)** - create an app from this repo with main file `ui/streamlit_app.py`; dependencies come from `ui/requirements.txt` (only `streamlit` and `requests`). In *Advanced settings -> Secrets* set:
-
-```toml
-API_BASE = "https://<your-vercel-project>.vercel.app"
-APP_API_KEY = "<same value as the API's APP_API_KEY>"
-```
-
-The theme (dark base) and `maxUploadSize = 4` live in `.streamlit/config.toml` at the **repository root**. If the sidebar shows "Server chưa chạy" on Streamlit Cloud, the `API_BASE` secret is missing. Full instructions (Vietnamese): `ui/README.md`.
 
 ## Docker
 
@@ -203,8 +188,6 @@ CI (`.github/workflows/ci.yml`) runs `ruff` and the unit tests on every push/PR 
 - `app/api/` - FastAPI app, routes and API-key auth
 - `web/` - Next.js web UI (shared-password private beta): pages, `/api/*` proxy route handlers, PDF viewer, Vitest and Playwright tests (Vietnamese `README.md`)
 - `db/migrations/` - one-off SQL migrations (e.g. `2026-10-25_has_pdf.sql`)
-- `ui/` - legacy Streamlit frontend, being replaced by `web/` (`streamlit_app.py`, its own `requirements.txt` and `README.md`)
-- `.streamlit/config.toml` - Streamlit theme and upload limit (must stay at the repo root)
 - `eval/` - Phase 3 retrieval evaluation: golden set, metrics, runner, indexer and results (`eval/results/`)
 - `db/schema.sql` - Postgres schema
 - `tests/` - unit tests (`tests/integration/` needs Postgres)

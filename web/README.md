@@ -1,6 +1,6 @@
 # Giao diện web (Next.js)
 
-Giao diện đọc bài báo cho ArXiv Agentic RAG: thư viện bài, hội thoại hỏi đáp có trích dẫn, và khung xem PDF gốc với đoạn trích được tô sáng khi bấm vào số trang. Đây là bản thay thế cho giao diện Streamlit ở `ui/`.
+Giao diện đọc bài báo cho ArXiv Agentic RAG: thư viện bài, hội thoại hỏi đáp có trích dẫn, và khung xem PDF gốc với đoạn trích được tô sáng khi bấm vào số trang. Đây là bản thay thế cho giao diện Streamlit trước đây.
 
 Tên sản phẩm "Paper Reader" chỉ là **tên tạm**, nằm duy nhất ở `web/lib/brand.ts`. Đây chỉ là chỗ giữ tên (placeholder), phải đặt tên thật trước khi ra mắt công khai.
 

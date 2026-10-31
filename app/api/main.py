@@ -5,7 +5,7 @@ Diem khoi dong chinh cua FastAPI server.
 
 Chuc nang:
   - Tao FastAPI app voi metadata (title, description, version).
-  - Cau hinh CORS cho phep Streamlit (chay o port khac) goi API.
+  - Cau hinh CORS cho client trinh duyet goi thang API (neu co).
   - Dang ky router chua cac endpoint.
   - Cung cap tai lieu Swagger UI tai /docs va ReDoc tai /redoc.
 
@@ -81,8 +81,9 @@ app = FastAPI(
 # ──────────────────────────────────────────────────────────────────────────────
 # CAU HINH CORS
 # Danh sach origin lay tu settings.allowed_origins (env ALLOWED_ORIGINS, phan tach
-# bang dau phay) - mac dinh chi Streamlit local. Khi deploy: them URL Streamlit
-# Cloud that (vd https://ten-app.streamlit.app), KHONG dung "*".
+# bang dau phay) - mac dinh rong: web UI (web/) goi API tu server Next.js nen
+# khong can CORS. Chi them origin khi co client trinh duyet goi thang API,
+# KHONG dung "*".
 # allow_credentials=False: API xac thuc bang header X-API-Key, khong dung cookie,
 # nen khong can credentials (va "*" + credentials la to hop khong an toan).
 # ──────────────────────────────────────────────────────────────────────────────

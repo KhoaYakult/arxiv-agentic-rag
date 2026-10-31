@@ -71,7 +71,8 @@ class Settings(BaseSettings):
     # phai gui header X-API-Key bang dung gia tri nay.
     app_api_key: str = ""
     # Danh sach origin duoc phep goi API tu trinh duyet, phan tach bang dau phay.
-    allowed_origins: str = "http://localhost:8501,http://127.0.0.1:8501"
+    # Rong: web UI goi API tu server Next.js nen khong can CORS.
+    allowed_origins: str = ""
 
     # ── SUPABASE STORAGE (luu PDF goc cho khung xem PDF cua web UI) ──
     # Thieu 1 trong 2 -> app/storage/pdf_store.py tu tat (has_pdf=false), app van chay.

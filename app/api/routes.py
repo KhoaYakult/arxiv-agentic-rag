@@ -231,7 +231,7 @@ def is_stuck(paper: dict, now: datetime | None = None) -> bool:
 def health_check() -> HealthResponse:
     """
     Tra ve trang thai server.
-    Dung de Streamlit hoac load-balancer xac nhan server dang hoat dong.
+    Dung de client hoac load-balancer xac nhan server dang hoat dong.
     """
     return HealthResponse(
         status="ok",
@@ -279,7 +279,7 @@ async def health_db():
 async def list_papers() -> PapersResponse:
     """
     Tra ve danh sach tat ca bai bao da duoc upload va index thanh cong.
-    Streamlit dung endpoint nay de hien thi dropdown chon bai bao.
+    Web UI dung endpoint nay de hien thi thu vien bai bao.
     """
     from app.storage import repository
 

@@ -1,4 +1,4 @@
-.PHONY: install dev-install run ui test test-integration eval eval-citations lint fmt docker-build docker-run web-dev web-test
+.PHONY: install dev-install run test test-integration eval eval-citations lint fmt docker-build docker-run web-dev web-test
 
 install:
 	pip install -r requirements.txt
@@ -8,9 +8,6 @@ dev-install: install
 
 run:
 	uvicorn app.api.main:app --reload --port 8000
-
-ui:
-	streamlit run ui/streamlit_app.py
 
 test:
 	python -m pytest tests/ -v
@@ -42,7 +39,7 @@ docker-build:
 docker-run:
 	docker run -p 8000:8000 --env-file .env arxiv-rag
 
-# Web UI moi (Next.js, thu muc web/). Can Node >= 22.
+# Web UI (Next.js, thu muc web/). Can Node >= 22.
 web-dev:
 	cd web && npm run dev
 
