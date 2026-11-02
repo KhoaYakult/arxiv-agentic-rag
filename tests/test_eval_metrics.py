@@ -134,8 +134,16 @@ class TestScoreAnswer:
 
         chunks = [{"text": "Transformer (base model) 27.3 38.1"}, {"text": "unrelated"}]
         s = score_answer("BLEU 38.1 [1] and [9]", chunks, ["Transformer (base model) 27.3 38.1"])
-        assert s == {"markers": [1, 9], "valid": [1], "out_of_range": 1, "precise": True}
+        assert s == {"markers": [1, 9], "valid": [1], "out_of_range": 1, "precise": True, "alt": []}
         assert score_answer("no cite", chunks, ["x"])["precise"] is False
+
+    def test_alt_citation_styles_are_reported_not_counted(self):
+        from eval.check_citations import score_answer
+
+        chunks = [{"text": "a"}, {"text": "b"}]
+        s = score_answer("70.9 %【1†L4-L5】【2】 see [^1] (Source 2)", chunks, ["a"])
+        assert s["markers"] == [] and s["valid"] == []
+        assert s["alt"] == ["【1†L4-L5】", "【2】", "[^1]", "(Source 2"]
 
 
 class TestQuotaAndErrorRow:
