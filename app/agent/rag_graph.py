@@ -77,6 +77,21 @@ def format_context(chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+# gpt-oss (Groq) duoc train voi dinh dang trich dan "harmony" cua OpenAI: 【1】, 【1†L4-L5】
+# (so doan + dong). Prompt da cam nhung model van hay viet theo thoi quen -> eval
+# 2026-11-02: 6/21 cau trich dan dung doan nhung sai dinh dang, UI khong hien chip.
+_HARMONY_CITATION_RE = re.compile(r"【(\d{1,3}(?:\s*[,–-]\s*\d{1,3})*)(?:†[^】\n]{0,40})?】")
+# Doan code (fenced / inline) giu nguyen, giong quy tac copy cua web.
+_CODE_SPAN_RE = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
+
+
+def normalize_citation_markers(text: str) -> str:
+    """Doi 【n】 / 【n†...】 thanh [n] (grammar chung CITATION_MARKER_RE), bo qua code."""
+    parts = _CODE_SPAN_RE.split(text)
+    # split voi 1 nhom bat: phan tu chan = van ban thuong, le = code
+    return "".join(p if i % 2 else _HARMONY_CITATION_RE.sub(r"[\1]", p) for i, p in enumerate(parts))
+
+
 def strip_citation_markers(text: str) -> str:
     """Bo marker [n] khoi cau tra loi cu truoc khi dua vao chat history - so [n] cua luot
     truoc tro toi chunk cua luot truoc, de lai se lam LLM trich nham so o luot nay."""
@@ -184,7 +199,8 @@ async def generate_node(state: AgentState) -> dict:
         "question": state["question"],
     })
 
-    answer = _text(response)
+    # Chuan hoa ngay tai day de API, lich su chat, web va eval deu chi thay [n].
+    answer = normalize_citation_markers(_text(response))
     print("[NODE] generate -- hoan tat!", flush=True)
 
     # add_messages tu dong NOI THEM vao lich su cu
