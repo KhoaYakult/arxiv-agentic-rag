@@ -1,6 +1,7 @@
 """Test context cua grade_node va prompt rewrite (app/agent/rag_graph.py, app/llm/prompt_templates.py)."""
 
 from app.agent.rag_graph import format_grade_context
+from app.llm.prompt_templates import REWRITE_QUERY_TEMPLATE
 
 
 class TestFormatGradeContext:
@@ -21,3 +22,17 @@ class TestFormatGradeContext:
 
     def test_empty(self):
         assert format_grade_context([]) == ""
+
+
+class TestRewriteTemplate:
+    def test_does_not_ask_to_expand_abbreviations(self):
+        assert "Expand abbreviations" not in REWRITE_QUERY_TEMPLATE
+        assert "do NOT expand" in REWRITE_QUERY_TEMPLATE
+
+    def test_forbids_adding_details(self):
+        assert "Do NOT add facts" in REWRITE_QUERY_TEMPLATE
+
+    def test_only_input_is_question(self):
+        from langchain_core.prompts import ChatPromptTemplate
+
+        assert ChatPromptTemplate.from_template(REWRITE_QUERY_TEMPLATE).input_variables == ["question"]

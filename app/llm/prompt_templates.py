@@ -86,10 +86,10 @@ Your task: Rewrite the question to be more specific, using academic/technical te
 that are likely to appear in the paper text.
 
 Guidelines:
-- Expand abbreviations 
-- Add relevant technical terms that the paper likely uses
-- Make the question more specific and searchable
-- Keep the same intent as the original question
+- Keep abbreviations and acronyms exactly as written (e.g. "CRAG", "DPR", "BLEU"); do NOT expand them or guess what they stand for
+- Do NOT add facts, numbers, names or details that are not in the original question
+- You may add general technical terms that the paper likely uses
+- Keep the same intent and roughly the same length as the original question
 - Return ONLY the rewritten question, nothing else
 
 Original question: {question}
