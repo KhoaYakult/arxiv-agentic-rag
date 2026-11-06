@@ -1,4 +1,4 @@
-.PHONY: install dev-install run test test-integration eval eval-citations lint fmt docker-build docker-run web-dev web-test
+.PHONY: install dev-install run test test-integration eval eval-citations gate-sim lint fmt docker-build docker-run web-dev web-test
 
 install:
 	pip install -r requirements.txt
@@ -26,6 +26,11 @@ eval:
 # Do trich dan [n] trong cau tra loi (goi LLM that). Can EVAL_DATABASE_URL nhu `make eval`.
 eval-citations:
 	python eval/check_citations.py $(ARGS)
+
+# Mo phong cong 3 tang (offline, khong goi API) tren file answers.jsonl cua eval-citations:
+#   make gate-sim ARGS="eval/results/<ngay>_<label>.answers.jsonl --label x"
+gate-sim:
+	python eval/gate_sim.py $(ARGS)
 
 lint:
 	ruff check .

@@ -146,6 +146,56 @@ class TestScoreAnswer:
         assert s["alt"] == ["【1†L4-L5】", "【2】", "[^1]", "(Source 2"]
 
 
+class TestSummarizeTrace:
+    """Lich su checkpoint (thu tu thoi gian) -> diem + grade cua LUOT DAU, so lan goi LLM."""
+
+    def _steps(self, grades: list[str]):
+        steps = [(("retrieve",), {"grade": "", "retrieved_chunks": []})]
+        for k, g in enumerate(grades):
+            chunks = [{"rerank_score": 0.9 - k / 10}, {"rerank_score": 0.5}]
+            steps.append((("grade",), {"grade": "" if k == 0 else grades[k - 1], "retrieved_chunks": chunks}))
+            nxt = ("rewrite",) if g == "no" and k < len(grades) - 1 else ("generate",)
+            steps.append((nxt, {"grade": g, "retrieved_chunks": chunks}))
+            if nxt == ("rewrite",):
+                steps.append((("retrieve",), {"grade": g, "retrieved_chunks": chunks}))
+        steps.append(((), {"grade": grades[-1]}))
+        return steps
+
+    def test_first_pass_yes(self):
+        from eval.check_citations import summarize_trace
+
+        t = summarize_trace(self._steps(["yes"]))
+        assert t == {"first_scores": [0.9, 0.5], "first_grade": "yes", "grade_calls": 1, "llm_calls": 2}
+
+    def test_rewrites_keep_first_pass_values(self):
+        from eval.check_citations import summarize_trace
+
+        t = summarize_trace(self._steps(["no", "no", "yes"]))
+        assert t["first_scores"] == [0.9, 0.5] and t["first_grade"] == "no"
+        assert t["grade_calls"] == 3 and t["llm_calls"] == 6  # 3 grade + 2 rewrite + 1 generate
+
+    def test_empty_history(self):
+        from eval.check_citations import summarize_trace
+
+        assert summarize_trace([]) == {"first_scores": [], "first_grade": None, "grade_calls": 0, "llm_calls": 1}
+
+
+class TestLooksLikeAbstention:
+    def test_detects_en_and_vi_refusals(self):
+        from eval.check_citations import looks_like_abstention
+
+        assert looks_like_abstention("The provided excerpts do not contain the learning rate.")
+        assert looks_like_abstention("The paper sections do not report MS MARCO results.")
+        assert looks_like_abstention("Các đoạn trích không đề cập tới learning rate.")
+        assert looks_like_abstention("Tài liệu không có thông tin về điều này.")
+
+    def test_plain_answers_are_not_refusals(self):
+        from eval.check_citations import looks_like_abstention
+
+        assert not looks_like_abstention("The base model reaches 38.1 BLEU [1].")
+        assert not looks_like_abstention("Mô hình đạt 28.4 BLEU trên WMT 2014 [2].")
+
+
 class TestQuotaAndErrorRow:
     def test_is_quota_error(self):
         from eval.check_citations import is_quota_error
