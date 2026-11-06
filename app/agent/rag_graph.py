@@ -108,6 +108,18 @@ FIRST_STAGE_K = 20  # so ung vien lay tu hybrid_search truoc khi rerank con 5
 # NODES
 # =============================================================================
 
+def format_grade_context(chunks: list[dict]) -> str:
+    """
+    Context cho grade_node: DAY DU text moi chunk. Truoc day cat c['text'][:400] trong khi
+    chunk ~800 ky tu -> evidence o nua sau bi giau, grader cham "no" oan 7/21 cau co dap an
+    (chan doan 2026-11-06; xem day du thi con 2/21, 3 cau khong co dap an van "no").
+    """
+    return "\n\n---\n\n".join(
+        f"[Chunk {i+1}] Section: {c['parent_section_name']}\n{c['text']}"
+        for i, c in enumerate(chunks)
+    )
+
+
 async def retrieve_node(state: AgentState) -> dict:
     """Tim Top-5 chunks: repository.hybrid_search() (pgvector + FTS) -> rerank."""
     from app.indexing.embeddings import get_embedding_provider
@@ -146,10 +158,7 @@ async def grade_node(state: AgentState) -> dict:
     from app.llm.prompt_templates import GRADE_DOCS_TEMPLATE
 
     print(f"[NODE] grade -- {len(state['retrieved_chunks'])} chunks...", flush=True)
-    context = "\n\n---\n\n".join([
-        f"[Chunk {i+1}] Section: {c['parent_section_name']}\n{c['text'][:400]}"
-        for i, c in enumerate(state["retrieved_chunks"])
-    ])
+    context = format_grade_context(state["retrieved_chunks"])
     chain = ChatPromptTemplate.from_template(GRADE_DOCS_TEMPLATE) | get_llm()
     response = await chain.ainvoke({"context": context, "question": state["question"]})
     grade = "yes" if "yes" in _text(response).lower().strip() else "no"
