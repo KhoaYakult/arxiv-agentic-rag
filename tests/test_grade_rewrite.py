@@ -36,3 +36,55 @@ class TestRewriteTemplate:
         from langchain_core.prompts import ChatPromptTemplate
 
         assert ChatPromptTemplate.from_template(REWRITE_QUERY_TEMPLATE).input_variables == ["question"]
+
+
+class TestParseGrade:
+    def test_yes_only_at_start(self):
+        from app.agent.rag_graph import parse_grade
+
+        assert parse_grade("yes") == "yes"
+        assert parse_grade("  Yes.") == "yes"
+        assert parse_grade('"yes"') == "yes"
+        assert parse_grade("**Yes**") == "yes"
+
+    def test_no_and_mentions_of_yes_are_no(self):
+        from app.agent.rag_graph import parse_grade
+
+        assert parse_grade("no") == "no"
+        assert parse_grade("No, not yes") == "no"  # kieu cu `"yes" in text` hieu nham thanh yes
+        assert parse_grade("") == "no"
+
+
+class TestGetGraderLlm:
+    """Khong goi mang: get_llm() bi thay bang Runnable gia."""
+
+    def _setup(self, monkeypatch, groq_key: str, grader_model: str):
+        from langchain_core.runnables import RunnableLambda
+
+        from app.config import settings
+        from app.llm import llm_factory
+
+        fake = RunnableLambda(lambda _: "fallback")
+        monkeypatch.setattr(llm_factory, "get_llm", lambda *a, **kw: fake)
+        monkeypatch.setattr(settings, "groq_api_key", groq_key)
+        monkeypatch.setattr(settings, "grader_model", grader_model)
+        llm_factory.get_grader_llm.cache_clear()
+        return llm_factory, fake
+
+    def test_uses_groq_grader_model_with_fallback(self, monkeypatch):
+        llm_factory, fake = self._setup(monkeypatch, "gsk_test", "qwen/qwen3.8-27b")
+        llm = llm_factory.get_grader_llm()
+        assert llm.runnable.model_name == "qwen/qwen3.8-27b"
+        assert llm.runnable.reasoning_effort == "none"
+        assert llm.fallbacks == [fake]
+        llm_factory.get_grader_llm.cache_clear()
+
+    def test_empty_grader_model_uses_get_llm(self, monkeypatch):
+        llm_factory, fake = self._setup(monkeypatch, "gsk_test", "")
+        assert llm_factory.get_grader_llm() is fake
+        llm_factory.get_grader_llm.cache_clear()
+
+    def test_no_groq_key_uses_get_llm(self, monkeypatch):
+        llm_factory, fake = self._setup(monkeypatch, "", "qwen/qwen3.8-27b")
+        assert llm_factory.get_grader_llm() is fake
+        llm_factory.get_grader_llm.cache_clear()

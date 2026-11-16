@@ -150,18 +150,26 @@ async def retrieve_node(state: AgentState) -> dict:
     return {"retrieved_chunks": chunks}
 
 
+def parse_grade(text: str) -> str:
+    """
+    "yes" chi khi cau tra loi BAT DAU bang yes (bo dau nhay/markdown o dau). Truoc day kiem
+    `"yes" in text` nen "No, not yes" bi hieu thanh yes.
+    """
+    return "yes" if text.strip().lower().lstrip("\"'*` ").startswith("yes") else "no"
+
+
 async def grade_node(state: AgentState) -> dict:
     """LLM cham diem context co du de tra loi khong."""
     from langchain_core.prompts import ChatPromptTemplate
 
-    from app.llm.llm_factory import get_llm
+    from app.llm.llm_factory import get_grader_llm
     from app.llm.prompt_templates import GRADE_DOCS_TEMPLATE
 
     print(f"[NODE] grade -- {len(state['retrieved_chunks'])} chunks...", flush=True)
     context = format_grade_context(state["retrieved_chunks"])
-    chain = ChatPromptTemplate.from_template(GRADE_DOCS_TEMPLATE) | get_llm()
+    chain = ChatPromptTemplate.from_template(GRADE_DOCS_TEMPLATE) | get_grader_llm()
     response = await chain.ainvoke({"context": context, "question": state["question"]})
-    grade = "yes" if "yes" in _text(response).lower().strip() else "no"
+    grade = parse_grade(_text(response))
     print(f"[NODE] grade -- {grade.upper()} (rewrite={state['rewrite_count']})", flush=True)
     return {"grade": grade}
 

@@ -212,6 +212,31 @@ def get_llm(
     return llm
 
 
+@lru_cache(maxsize=1)
+def get_grader_llm():
+    """
+    LLM rieng cho grade_node: model Groq nho, tat suy luan (settings.grader_model), chi can
+    tra "yes"/"no" -> max_tokens nho. Groq tinh quota theo tung model nen grader khong an vao
+    quota cua model sinh cau tra loi. Loi (429, model bi go...) -> fallback get_llm().
+    Khong co GROQ_API_KEY hoac GRADER_MODEL rong -> dung thang get_llm().
+    """
+    fallback = get_llm()
+    if not (settings.groq_api_key and settings.grader_model):
+        return fallback
+
+    from langchain_groq import ChatGroq
+
+    grader = ChatGroq(
+        model=settings.grader_model,
+        api_key=settings.groq_api_key,
+        temperature=0,
+        max_tokens=16,
+        reasoning_effort="none",
+    )
+    print(f"[SUCCESS] Grader san sang: Groq/{settings.grader_model} (fallback get_llm)", flush=True)
+    return grader.with_fallbacks([fallback])
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT: Test ket noi LLM
 # ──────────────────────────────────────────────────────────────────────────────

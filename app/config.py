@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     groq_model_name: str = "llama3-70b-8192"
     # gemini-2.0-flash da bi Google tat 2026-06-01; 2.5-flash-lite tra 404 voi key moi -> dung 3.5-flash-lite (da goi thuc te OK 2026-10-24)
     gemini_model_name: str = "gemini-3.5-flash-lite"
+    # Model rieng cho grade_node (env GRADER_MODEL; de trong = dung get_llm() nhu buoc generate).
+    # A/B 2026-11-16 tren 36 cau (eval/results/2026-11-16_grader-ab.md): qwen3.8-27b tat suy luan
+    # cham oan 1/21 (gpt-oss-120b 3/21), lot 0/15, 2 token ra, 1,3 s; quota Groq tinh rieng tung model.
+    grader_model: str = "qwen/qwen3.8-27b"
 
 
     # ── CẤU HÌNH CHUNKING ──
