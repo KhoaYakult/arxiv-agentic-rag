@@ -88,3 +88,26 @@ class TestGetGraderLlm:
         llm_factory, fake = self._setup(monkeypatch, "", "qwen/qwen3.8-27b")
         assert llm_factory.get_grader_llm() is fake
         llm_factory.get_grader_llm.cache_clear()
+
+
+class TestContextNote:
+    """Grader van "no" sau khi het rewrite -> generate phai biet (q49 tung bia so lieu)."""
+
+    def test_note_only_when_grade_no(self):
+        from app.agent.rag_graph import context_note
+        from app.llm.prompt_templates import INSUFFICIENT_CONTEXT_NOTE
+
+        assert context_note("no") == INSUFFICIENT_CONTEXT_NOTE
+        assert context_note("yes") == ""
+        assert context_note("") == ""
+
+    def test_answer_template_takes_the_note(self):
+        from langchain_core.prompts import ChatPromptTemplate
+
+        from app.llm.prompt_templates import INSUFFICIENT_CONTEXT_NOTE, RAG_ANSWER_TEMPLATE
+
+        prompt = ChatPromptTemplate.from_template(RAG_ANSWER_TEMPLATE)
+        assert set(prompt.input_variables) == {"context", "chat_history", "question", "context_note"}
+        text = prompt.format(context="[1] x", chat_history="", question="q", context_note=INSUFFICIENT_CONTEXT_NOTE)
+        assert "probably do NOT answer" in text and "different model, dataset, split or setting" in text
+        assert "WARNING" not in prompt.format(context="[1] x", chat_history="", question="q", context_note="")

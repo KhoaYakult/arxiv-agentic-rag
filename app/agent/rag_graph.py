@@ -189,6 +189,16 @@ async def rewrite_node(state: AgentState) -> dict:
     return {"question": new_q, "rewrite_count": state["rewrite_count"] + 1}
 
 
+def context_note(grade: str) -> str:
+    """
+    Toi generate voi grade "no" = da het luot rewrite ma grader van thay context khong du.
+    Truyen ket luan do cho LLM sinh (truoc day bi bo di -> q49 bia so lieu).
+    """
+    from app.llm.prompt_templates import INSUFFICIENT_CONTEXT_NOTE
+
+    return INSUFFICIENT_CONTEXT_NOTE if grade == "no" else ""
+
+
 async def generate_node(state: AgentState) -> dict:
     """LLM tong hop cau tra loi. Tu dong lay chat history tu messages."""
     from langchain_core.prompts import ChatPromptTemplate
@@ -197,6 +207,8 @@ async def generate_node(state: AgentState) -> dict:
     from app.llm.prompt_templates import RAG_ANSWER_TEMPLATE
 
     print("[NODE] generate -- dang tong hop...", flush=True)
+    if state.get("grade") == "no":
+        print("[NODE] generate -- grader van noi 'khong du': them canh bao vao prompt", flush=True)
 
     # Format 6 tin nhan gan nhat thanh chuoi cho prompt
     recent = state.get("messages", [])[-6:]
@@ -214,6 +226,7 @@ async def generate_node(state: AgentState) -> dict:
         "context": context,
         "chat_history": history,
         "question": state["question"],
+        "context_note": context_note(state.get("grade", "")),
     })
 
     # Chuan hoa ngay tai day de API, lich su chat, web va eval deu chi thay [n].

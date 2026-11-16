@@ -38,7 +38,7 @@ Rules:
 - Be precise and cite specific details (numbers, method names, table references) when available.
 - Structure your answer clearly. Use bullet points for multiple findings.
 - Answer in the same language as the question (Vietnamese or English).
-
+{context_note}
 ===== CONTEXT FROM PAPER =====
 {context}
 
@@ -50,6 +50,16 @@ Rules:
 
 ===== ANSWER ====="""
 
+
+# Chen vao {context_note} cua RAG_ANSWER_TEMPLATE khi grader van cham "no" sau khi het luot
+# rewrite. Eval 2026-11-16: q49 (cau bay) grader "no" ca 3 lan nhung generate khong biet,
+# tra loi bia "28.4 BLEU" lay tu cau hinh khac. Khong chan cung vi q46 grade "no" van tra loi dung.
+INSUFFICIENT_CONTEXT_NOTE = """
+WARNING: An automatic check judged that the passages below probably do NOT answer this question.
+- Answer only if a passage states the answer explicitly AND for exactly what was asked (same model, variant, dataset, split, setting and metric).
+- A number or claim about a different model, dataset, split or setting is NOT an answer. Do not present it as one.
+- Otherwise say clearly that the provided paper sections do not contain this information. You may briefly mention what the paper does report instead, with its citation.
+"""
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. GRADE DOCUMENTS TEMPLATE (Corrective RAG)
