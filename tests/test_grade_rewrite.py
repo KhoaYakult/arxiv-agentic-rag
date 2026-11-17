@@ -76,6 +76,8 @@ class TestGetGraderLlm:
         llm = llm_factory.get_grader_llm()
         assert llm.runnable.model_name == "qwen/qwen3.8-27b"
         assert llm.runnable.reasoning_effort == "none"
+        # Co timeout: ChatGroq mac dinh khong gioi han -> 1 ket noi chet lang tung treo 8 tieng
+        assert llm.runnable.request_timeout == 20
         assert llm.fallbacks == [fake]
         llm_factory.get_grader_llm.cache_clear()
 

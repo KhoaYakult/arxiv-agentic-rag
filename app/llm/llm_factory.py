@@ -91,6 +91,12 @@ def _pick_best_groq_model(api_key: str) -> str:
     return settings.groq_model_name
 
 
+# Gioi han thoi gian moi lan goi LLM (giay). ChatGroq/ChatGoogleGenerativeAI mac dinh KHONG co
+# timeout: 2026-11-17 mot lan goi treo 8 tieng (ket noi chet lang) -> eval dung han, va o production
+# /ask se treo toi khi Vercel cat o 300 s. Co timeout thi loi som -> fallback (Groq -> Gemini) chay duoc.
+LLM_TIMEOUT_SEC = 60
+SMALL_LLM_TIMEOUT_SEC = 20
+
 # ──────────────────────────────────────────────────────────────────────────────
 # FACTORY FUNCTION
 # ──────────────────────────────────────────────────────────────────────────────
@@ -115,6 +121,8 @@ def _build_llm(provider: str, temperature: float, max_tokens: int):
             api_key=settings.groq_api_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            request_timeout=LLM_TIMEOUT_SEC,
+            max_retries=2,
         )
         print(f"[SUCCESS] LLM san sang: Groq/{chosen_model}", flush=True)
         return llm
@@ -134,6 +142,8 @@ def _build_llm(provider: str, temperature: float, max_tokens: int):
             google_api_key=settings.gemini_api_key,
             temperature=temperature,
             max_output_tokens=max_tokens,
+            timeout=LLM_TIMEOUT_SEC,
+            max_retries=2,
         )
         print(f"[SUCCESS] LLM san sang: Gemini/{settings.gemini_model_name}", flush=True)
         return llm
@@ -224,7 +234,8 @@ def get_grader_llm():
     if not (settings.groq_api_key and settings.grader_model):
         return fallback
 
-    grader = _small_groq_llm(settings.grader_model, max_tokens=16)
+    grader = _small_groq_llm(settings.grader_model, max_tokens=16, request_timeout=SMALL_LLM_TIMEOUT_SEC,
+                             max_retries=1)
     print(f"[SUCCESS] Grader san sang: Groq/{settings.grader_model} (fallback get_llm)", flush=True)
     return grader.with_fallbacks([fallback])
 

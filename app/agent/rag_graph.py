@@ -101,7 +101,8 @@ def strip_citation_markers(text: str) -> str:
     out = re.sub(r"[ \t]+([.,;:!?])", r"\1", out)
     out = re.sub(r"(?<=\S)[ \t]{2,}", " ", out)
     return re.sub(r"[ \t]+$", "", out, flags=re.MULTILINE)
-FIRST_STAGE_K = 20  # so ung vien lay tu hybrid_search truoc khi rerank con 5
+FIRST_STAGE_K = 20
+EMBED_TIMEOUT_SEC = 30  # embed 1 cau hoi binh thuong < 1 s  # so ung vien lay tu hybrid_search truoc khi rerank con 5
 
 
 # =============================================================================
@@ -170,8 +171,9 @@ async def retrieve_node(state: AgentState) -> dict:
     # embed_query la ham SYNC (goi HTTP Gemini, co the retry/sleep) - chay trong
     # thread rieng de khong dong bang event loop cua ca server.
     # Embed (Gemini) va dich cho nhanh tu khoa (Groq) doc lap nhau -> chay song song.
+    # wait_for: client embedding khong dam bao co timeout -> ket noi chet lang khong duoc lam treo /ask.
     query_embedding, sparse_query = await asyncio.gather(
-        asyncio.to_thread(provider.embed_query, state["question"]),
+        asyncio.wait_for(asyncio.to_thread(provider.embed_query, state["question"]), EMBED_TIMEOUT_SEC),
         sparse_query_for(state["question"]),
     )
     if sparse_query:
