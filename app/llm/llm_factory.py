@@ -224,17 +224,37 @@ def get_grader_llm():
     if not (settings.groq_api_key and settings.grader_model):
         return fallback
 
-    from langchain_groq import ChatGroq
-
-    grader = ChatGroq(
-        model=settings.grader_model,
-        api_key=settings.groq_api_key,
-        temperature=0,
-        max_tokens=16,
-        reasoning_effort="none",
-    )
+    grader = _small_groq_llm(settings.grader_model, max_tokens=16)
     print(f"[SUCCESS] Grader san sang: Groq/{settings.grader_model} (fallback get_llm)", flush=True)
     return grader.with_fallbacks([fallback])
+
+
+@lru_cache(maxsize=1)
+def get_translator_llm():
+    """
+    LLM dich cau hoi tieng Viet sang tieng Anh cho nhanh tu khoa (settings.translate_model).
+    Tra None khi tat (khong co GROQ_API_KEY hoac TRANSLATE_MODEL rong) -> retrieve dung cau goc.
+    KHONG co fallback va co timeout ngan: dich chi la phan cai thien them, loi/cham thi
+    sparse_query_for() bo qua va dung cau goc - khong de buoc phu nay lam treo /ask.
+    """
+    if not (settings.groq_api_key and settings.translate_model):
+        return None
+    print(f"[SUCCESS] Translator san sang: Groq/{settings.translate_model}", flush=True)
+    return _small_groq_llm(settings.translate_model, max_tokens=160, request_timeout=8, max_retries=1)
+
+
+def _small_groq_llm(model: str, max_tokens: int, **kwargs):
+    """Model Groq nho, tat suy luan, temperature 0 - cho cac buoc chi can dau ra ngan, on dinh."""
+    from langchain_groq import ChatGroq
+
+    return ChatGroq(
+        model=model,
+        api_key=settings.groq_api_key,
+        temperature=0,
+        max_tokens=max_tokens,
+        reasoning_effort="none",
+        **kwargs,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

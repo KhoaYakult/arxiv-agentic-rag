@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # A/B 2026-11-16 tren 36 cau (eval/results/2026-11-16_grader-ab.md): qwen3.8-27b tat suy luan
     # cham oan 1/21 (gpt-oss-120b 3/21), lot 0/15, 2 token ra, 1,3 s; quota Groq tinh rieng tung model.
     grader_model: str = "qwen/qwen3.8-27b"
+    # Model Groq dich cau hoi tieng Viet sang tieng Anh CHO NHANH TU KHOA (env TRANSLATE_MODEL;
+    # de trong = tat dich). Eval 2026-11-16 (eval/results/2026-11-16_crosslingual.md, 21 cap cau):
+    # Hit@5 cau tieng Viet 0.810 -> 0.857 (tieng Anh 0.905); qwen dich tot ngang nguoi dich.
+    translate_model: str = "qwen/qwen3.8-27b"
 
 
     # ── CẤU HÌNH CHUNKING ──

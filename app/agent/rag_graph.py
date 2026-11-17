@@ -120,6 +120,44 @@ def format_grade_context(chunks: list[dict]) -> str:
     )
 
 
+# Chu cai co dau chi tieng Viet dung (tieng Anh gan nhu khong co). Can >= 2 ky tu de
+# "naïve", "café" trong cau tieng Anh khong bi nham.
+_VI_CHARS_RE = re.compile(
+    r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]"
+)
+
+
+def is_vietnamese(text: str) -> bool:
+    return len(_VI_CHARS_RE.findall(text.lower())) >= 2
+
+
+async def sparse_query_for(question: str) -> str | None:
+    """
+    Cau dung cho nhanh tu khoa: cau hoi tieng Viet -> ban dich tieng Anh (full-text search tren
+    bai bao tieng Anh khong khop duoc tu tieng Viet). None = dung cau goc (cau tieng Anh, tat
+    dich, hoac dich loi). Dich loi CHI lam mat phan cai thien, khong duoc lam hong /ask.
+    """
+    from langchain_core.prompts import ChatPromptTemplate
+
+    from app.llm.llm_factory import get_translator_llm
+    from app.llm.prompt_templates import TRANSLATE_QUERY_TEMPLATE
+
+    if not is_vietnamese(question):
+        return None
+    llm = get_translator_llm()
+    if llm is None:
+        return None
+    try:
+        response = await (ChatPromptTemplate.from_template(TRANSLATE_QUERY_TEMPLATE) | llm).ainvoke(
+            {"question": question}
+        )
+    except Exception as e:  # dich la tuy chon: retrieval van chay voi cau goc
+        print(f"[WARN] Dich cau hoi cho nhanh tu khoa that bai, dung cau goc: {type(e).__name__}", flush=True)
+        return None
+    translated = _text(response).strip()
+    return translated or None
+
+
 async def retrieve_node(state: AgentState) -> dict:
     """Tim Top-5 chunks: repository.hybrid_search() (pgvector + FTS) -> rerank."""
     from app.indexing.embeddings import get_embedding_provider
@@ -131,13 +169,20 @@ async def retrieve_node(state: AgentState) -> dict:
     provider = get_embedding_provider()
     # embed_query la ham SYNC (goi HTTP Gemini, co the retry/sleep) - chay trong
     # thread rieng de khong dong bang event loop cua ca server.
-    query_embedding = await asyncio.to_thread(provider.embed_query, state["question"])
+    # Embed (Gemini) va dich cho nhanh tu khoa (Groq) doc lap nhau -> chay song song.
+    query_embedding, sparse_query = await asyncio.gather(
+        asyncio.to_thread(provider.embed_query, state["question"]),
+        sparse_query_for(state["question"]),
+    )
+    if sparse_query:
+        print(f"[NODE] retrieve -- tu khoa (dich EN): {sparse_query[:70]}", flush=True)
 
     candidates = await repository.hybrid_search(
         paper_id=state["paper_id"],
         query_text=state["question"],
         query_embedding=query_embedding,
         top_k=FIRST_STAGE_K,
+        sparse_query_text=sparse_query,
     )
 
     # rerank cung SYNC (Cohere HTTP hoac CrossEncoder.predict tren CPU) -> to_thread.

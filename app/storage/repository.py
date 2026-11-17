@@ -387,15 +387,19 @@ async def hybrid_search(
     query_text: str,
     query_embedding: list[float],
     top_k: int = 20,
+    sparse_query_text: str | None = None,
 ) -> list[dict]:
     """
     Dense + sparse chay song song (asyncio.gather), gop bang RRF. Tra ve
     top_k ung vien da fuse - chua rerank (buoc rerank van la
     app/indexing/reranker.py, khong doi, khong quan tam data tu dau ra).
+
+    sparse_query_text: cau dung RIENG cho nhanh tu khoa (vd ban dich tieng Anh cua cau hoi
+    tieng Viet - full-text search khong bac cau duoc 2 ngon ngu). None = dung query_text.
     """
     dense_results, sparse_results = await asyncio.gather(
         dense_search(paper_id, query_embedding, top_k),
-        sparse_search(paper_id, query_text, top_k),
+        sparse_search(paper_id, sparse_query_text or query_text, top_k),
     )
     fused = reciprocal_rank_fusion(dense_results, sparse_results)
     return fused[:top_k]

@@ -108,6 +108,16 @@ Rewritten question:"""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 4. TRANSLATE QUERY TEMPLATE
+# Nhiem vu: dich cau hoi tieng Viet sang tieng Anh, CHI dung cho nhanh tim tu khoa
+# (bai bao tieng Anh). Dense, rerank va cau tra loi van theo cau hoi goc.
+# ──────────────────────────────────────────────────────────────────────────────
+
+TRANSLATE_QUERY_TEMPLATE = """Translate this question about a scientific paper into English, for keyword search over the English paper. Keep technical terms, model names, dataset names and numbers exactly. Output only the English question.
+
+Question: {question}"""
+
+# ──────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT: Xem thu cac template
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -133,6 +143,7 @@ if __name__ == "__main__":
         "RAG_ANSWER": RAG_ANSWER_TEMPLATE,
         "GRADE_DOCS": GRADE_DOCS_TEMPLATE,
         "REWRITE_QUERY": REWRITE_QUERY_TEMPLATE,
+        "TRANSLATE_QUERY": TRANSLATE_QUERY_TEMPLATE,
     }
 
     for name, template in templates.items():
