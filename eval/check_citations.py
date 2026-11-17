@@ -21,6 +21,10 @@ DAU TIEN (top-5) - du lieu de chon nguong cho cong 3 tang (eval/gate_sim.py).
 
 Luot dau lay tu lich su checkpoint cua LangGraph (aget_state_history), khong sua agent.
 
+Cham trich dan kieu ALCE (eval/alce.py, tat bang --no-judge): moi cau tra loi them 1 luot goi
+giam khao (settings.grader_model, mac dinh qwen3.8-27b) -> (h) citation recall, (i) citation
+precision theo noi dung, (j) so cau khang dinh khong co trich dan.
+
 Mac dinh KHOA CUNG 1 provider (--provider groq): get_llm(provider=...) tuong minh khong
 gan fallback, nen ca lan do chi 1 model tra loi (fallback Groq -> Gemini giua chung lam
 so do tron 2 model). Groq free chi 8K token/phut: giua 2 cau nghi --sleep giay; gap 429
@@ -47,12 +51,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from eval import metrics  # noqa: E402
+from eval import alce, metrics  # noqa: E402
 from eval.run_eval import _get_eval_db_url, _git_commit, load_golden  # noqa: E402
 
 RESULTS_DIR = ROOT / "eval" / "results"
 QUOTA_RETRIES = 2
 QUOTA_WAIT_SEC = 65
+# 1 cau qua ask() binh thuong < 30 s (ca 2 lan rewrite). 2026-11-17 1 cau treo 8 tieng vi ket noi
+# chet lang -> mat ket qua ca lan do. Qua han = dong loi, chay tiep cau sau.
+QUESTION_TIMEOUT_SEC = 240
 
 # Kieu trich dan KHONG nam trong grammar [n] (chi de chan doan, khong tinh la marker hop le).
 ALT_CITATION_RE = re.compile(
@@ -121,7 +128,7 @@ def error_row(it: dict, e: Exception, secs: float) -> dict:
     return {"markers": [], "valid": [], "out_of_range": 0, "precise": False, "alt": [], "id": it["id"],
             "lang": it["lang"], "type": it.get("type"), "grade": None, "rewrites": None,
             "first_grade": None, "first_scores": [], "llm_calls": None, "abstained": False,
-            "secs": round(secs, 1), "error": msg}
+            "alce": None, "secs": round(secs, 1), "error": msg}
 
 
 def pin_provider(provider: str) -> str:
@@ -160,6 +167,14 @@ async def main(args: argparse.Namespace) -> None:
 
     model = pin_provider(args.provider)
     print(f"[INFO] Model: {model}", flush=True)
+    judge = None
+    if not args.no_judge:
+        from groq import Groq
+
+        from app.config import settings
+
+        judge = (Groq(api_key=settings.groq_api_key), settings.grader_model or "qwen/qwen3.8-27b")
+        print(f"[INFO] Giam khao ALCE: Groq/{judge[1]}", flush=True)
 
     items = load_golden()
     if args.answerable_only:
@@ -181,7 +196,8 @@ async def main(args: argparse.Namespace) -> None:
             for attempt in range(QUOTA_RETRIES + 1):
                 thread_id = f"citecheck_{run_id}_{it['id']}_{attempt}"
                 try:
-                    result = await ask(it["question"], it["paper_id"], thread_id=thread_id)
+                    result = await asyncio.wait_for(ask(it["question"], it["paper_id"], thread_id=thread_id),
+                                                    QUESTION_TIMEOUT_SEC)
                     break
                 except Exception as e:
                     if not is_quota_error(e):
@@ -210,15 +226,24 @@ async def main(args: argparse.Namespace) -> None:
             s = score_answer(answer, chunks, [e["quote"] for e in it["evidence"]])
             tr = await trace_of(thread_id)
             abstained = looks_like_abstention(answer)
+            alce_result = None
+            if judge:
+                try:
+                    alce_result = await asyncio.to_thread(alce.judge_answer, judge[0], judge[1], answer, chunks)
+                except Exception as e:  # giam khao loi khong duoc lam mat ket qua cua cau nay
+                    print(f"[{it['id']}] giam khao ALCE loi: {type(e).__name__}", flush=True)
             rows.append({**s, **tr, "id": it["id"], "lang": it["lang"], "type": it["type"],
                          "grade": result.get("grade"), "rewrites": result.get("rewrite_count"),
-                         "abstained": abstained, "secs": secs, "error": ""})
+                         "abstained": abstained, "alce": alce_result, "secs": secs, "error": ""})
             answers.append({
                 "id": it["id"], "type": it["type"], "model": model, "question": it["question"],
                 "final_question": result.get("question"), "grade": result.get("grade"),
                 "first_grade": tr["first_grade"], "first_scores": tr["first_scores"],
                 "llm_calls": tr["llm_calls"], "rewrites": result.get("rewrite_count"),
                 "abstained": abstained, "markers": s["markers"], "alt": s["alt"], "answer": answer,
+                "alce": alce_result["sentences"] if alce_result else None,
+                "alce_ok": alce_result["judge_ok"] if alce_result else None,
+                "alce_raw": alce_result["raw"] if alce_result else None,
                 "chunks": [{"n": k, "page": c.get("page_num"), "section": c.get("parent_section_name"),
                             "rerank_score": c.get("rerank_score"), "head": c["text"][:200]}
                            for k, c in enumerate(chunks, start=1)],
@@ -226,6 +251,8 @@ async def main(args: argparse.Namespace) -> None:
             top = tr["first_scores"][0] if tr["first_scores"] else None
             print(f"[{it['id']}] {it['type']} first_grade={tr['first_grade']} top1={top} "
                   f"markers={s['markers']} abstained={abstained} calls={tr['llm_calls']}", flush=True)
+            # Ghi bao cao sau MOI cau: dung giua chung (treo, Ctrl-C) van con ket qua cac cau da chay.
+            write_report(args, model, items, rows, answers, stop_note, quiet=True)
     finally:
         # close_pool van phai chay du close_checkpointer nem loi
         try:
@@ -240,7 +267,14 @@ def _fmt_score(scores: list, k: int) -> str:
     return f"{scores[k]:.3f}" if len(scores) > k and scores[k] is not None else "-"
 
 
-def write_report(args, model, items, rows, answers, stop_note) -> None:
+def _alce_cell(row: dict, num: str, den: str) -> str:
+    j = row.get("alce")
+    if not j:
+        return "-"
+    return f"{j[num]}/{j[den]}" if j["judge_ok"] else "loi giam khao"
+
+
+def write_report(args, model, items, rows, answers, stop_note, quiet: bool = False) -> None:
     ans = [r for r in rows if r["type"] != "unanswerable"]
     una = [r for r in rows if r["type"] == "unanswerable"]
     n, nu = len(ans), len(una)
@@ -253,6 +287,14 @@ def write_report(args, model, items, rows, answers, stop_note) -> None:
     leak_yes = sum(1 for r in una if r["first_grade"] == "yes")
     abstained = sum(1 for r in una if r["abstained"])
     calls = [r["llm_calls"] for r in rows if r["llm_calls"]]
+    judged = [r["alce"] for r in ans if r["alce"] and r["alce"]["judge_ok"]]
+    judge_failed = sum(1 for r in ans if r["alce"] and not r["alce"]["judge_ok"])
+    a_claims = sum(j["claims"] for j in judged)
+    a_supported = sum(j["supported"] for j in judged)
+    a_partial = sum(j["partial"] for j in judged)
+    a_cites = sum(j["citations"] for j in judged)
+    a_useful = sum(j["useful_citations"] for j in judged)
+    a_uncited = sum(j["uncited_claims"] for j in judged)
     frac = lambda x, d: f"{x}/{d} ({x / d:.0%})" if d else "n/a"  # noqa: E731
     stem = f"{date.today().isoformat()}_{args.label}"
     lines = [
@@ -279,22 +321,28 @@ def write_report(args, model, items, rows, answers, stop_note) -> None:
         f"| (f) Unanswerable duoc grade 'yes' o luot dau (lot) | {frac(leak_yes, nu)} |",
         f"| (g) Unanswerable co cau tra loi tu choi (heuristic) | {frac(abstained, nu)} |",
         f"| So lan goi LLM trung binh / cau | {sum(calls) / len(calls):.2f} |" if calls else "| So lan goi LLM | n/a |",
+        f"| (h) ALCE citation recall: cau khang dinh duoc chung minh day du | {frac(a_supported, a_claims)}"
+        f" (+{a_partial} mot phan; {len(judged)}/{n} cau tra loi da cham, {judge_failed} giam khao loi -> bo) |",
+        f"| (i) ALCE citation precision: trich dan [n] co ich | {frac(a_useful, a_cites)} |",
+        f"| (j) Cau khang dinh KHONG co trich dan | {a_uncited} |",
         "",
         "| id | type | lang | grade dau | top1 | top2 | rewrite | LLM calls | markers | trung evidence "
-        "| tu choi | kieu khac | giay | error |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| tu choi | ALCE du/khang dinh | ALCE co ich/trich dan | kieu khac | giay | error |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         top1, top2 = (_fmt_score(r["first_scores"], k) for k in (0, 1))
         alt = ", ".join(r["alt"][:3]).replace("|", "/")
         lines.append(f"| {r['id']} | {r['type']} | {r['lang']} | {r['first_grade']} | {top1} | {top2} | "
                      f"{r['rewrites']} | {r['llm_calls']} | {r['markers']} | {'co' if r['precise'] else '-'} | "
-                     f"{'co' if r['abstained'] else '-'} | {alt} | {r['secs']} | {r['error']} |")
+                     f"{'co' if r['abstained'] else '-'} | {_alce_cell(r, 'supported', 'claims')} | "
+                     f"{_alce_cell(r, 'useful_citations', 'citations')} | {alt} | {r['secs']} | {r['error']} |")
     out = RESULTS_DIR / f"{stem}.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     jsonl = RESULTS_DIR / f"{stem}.answers.jsonl"
     jsonl.write_text("".join(json.dumps(a, ensure_ascii=False) + "\n" for a in answers), encoding="utf-8")
-    print(f"[OK] Ghi {out} va {jsonl.name}", flush=True)
+    if not quiet:
+        print(f"[OK] Ghi {out} va {jsonl.name}", flush=True)
 
 
 if __name__ == "__main__":
@@ -305,4 +353,5 @@ if __name__ == "__main__":
     p.add_argument("--sleep", type=float, default=20, help="giay nghi giua 2 cau (Groq free 8K token/phut)")
     p.add_argument("--only", default="", help="chi chay cac id nay, vd q15,q17")
     p.add_argument("--answerable-only", action="store_true", help="bo cau unanswerable (hanh vi cu)")
+    p.add_argument("--no-judge", action="store_true", help="khong cham trich dan kieu ALCE (tiet kiem quota)")
     asyncio.run(main(p.parse_args()))
