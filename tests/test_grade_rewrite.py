@@ -127,3 +127,94 @@ class TestRewriteCap:
         assert decide_after_grade(self._state("no", 0)) == "rewrite"
         assert decide_after_grade(self._state("no", 1)) == "generate"
         assert decide_after_grade(self._state("yes", 0)) == "generate"
+
+
+class TestRewriteKeepsOriginalQuestion:
+    """Rewrite chi doi cau dung de TIM; grade/generate/lich su dung cau user go (2026-11-18)."""
+
+    def _state(self, **kw):
+        base = {"question": "What dev-set BLEU does N = 12 reach?", "search_query": "",
+                "paper_id": "p", "retrieved_chunks": [{"parent_section_name": "S", "text": "t"}],
+                "grade": "no", "rewrite_count": 0, "answer": "", "messages": []}
+        return {**base, **kw}
+
+    def test_rewrite_sets_search_query_not_question(self, monkeypatch):
+        import asyncio
+
+        from langchain_core.messages import AIMessage
+        from langchain_core.runnables import RunnableLambda
+
+        from app.agent import rag_graph
+        from app.llm import llm_factory
+
+        seen = {}
+
+        def fake(prompt):
+            seen["prompt"] = prompt.to_string()
+            return AIMessage(content="validation-set BLEU for N = 12")
+
+        monkeypatch.setattr(llm_factory, "get_llm", lambda *a, **kw: RunnableLambda(fake))
+        out = asyncio.run(rag_graph.rewrite_node(self._state()))
+        assert out == {"search_query": "validation-set BLEU for N = 12", "rewrite_count": 1}
+        assert "question" not in out
+        assert "What dev-set BLEU does N = 12 reach?" in seen["prompt"]
+
+    def test_grade_uses_original_question(self, monkeypatch):
+        import asyncio
+
+        from langchain_core.messages import AIMessage
+        from langchain_core.runnables import RunnableLambda
+
+        from app.agent import rag_graph
+        from app.llm import llm_factory
+
+        seen = {}
+
+        def fake(prompt):
+            seen["prompt"] = prompt.to_string()
+            return AIMessage(content="no")
+
+        monkeypatch.setattr(llm_factory, "get_grader_llm", lambda: RunnableLambda(fake))
+        state = self._state(search_query="validation-set BLEU score is reported")
+        asyncio.run(rag_graph.grade_node(state))
+        assert "What dev-set BLEU does N = 12 reach?" in seen["prompt"]
+        assert "validation-set" not in seen["prompt"]
+
+    def test_retrieve_uses_search_query(self, monkeypatch):
+        import asyncio
+
+        from app.agent import rag_graph
+        from app.indexing import embeddings, reranker
+        from app.storage import repository
+
+        seen = {}
+
+        class Provider:
+            def embed_query(self, q):
+                seen["embed"] = q
+                return [0.0]
+
+        class Reranker:
+            def rerank(self, q, cands, k):
+                seen["rerank"] = q
+                return cands[:k]
+
+        async def fake_search(**kw):
+            seen["search"] = kw["query_text"]
+            return [{"text": "x"}]
+
+        async def fake_sparse(q):
+            seen["sparse"] = q
+            return None
+
+        monkeypatch.setattr(embeddings, "get_embedding_provider", lambda: Provider())
+        monkeypatch.setattr(reranker, "get_reranker", lambda: Reranker())
+        monkeypatch.setattr(repository, "hybrid_search", fake_search)
+        monkeypatch.setattr(rag_graph, "sparse_query_for", fake_sparse)
+
+        asyncio.run(rag_graph.retrieve_node(self._state(search_query="rewritten q")))
+        assert seen == {"embed": "rewritten q", "sparse": "rewritten q",
+                        "search": "rewritten q", "rerank": "rewritten q"}
+
+        asyncio.run(rag_graph.retrieve_node(self._state(search_query="")))
+        assert seen["embed"] == "What dev-set BLEU does N = 12 reach?"

@@ -34,7 +34,12 @@ from app.config import settings
 # =============================================================================
 
 class AgentState(TypedDict):
+    # question: cau user go, KHONG bao gio bi ghi de - grade, generate va lich su chat dung no.
+    # search_query: cau rewrite_node viet lai, CHI dung de tim (embed, tu khoa, rerank); "" = dung
+    # question. Truoc 2026-11-18 rewrite ghi de question -> grader cham cau da bi "noi" nghia
+    # (q49 "test set" -> "evaluation set") va noi "yes" voi cau bay.
     question: str
+    search_query: str
     paper_id: str
     retrieved_chunks: list
     grade: str
@@ -162,13 +167,19 @@ async def sparse_query_for(question: str) -> str | None:
     return translated or None
 
 
+def search_query_of(state: AgentState) -> str:
+    """Cau dung de tim: cau da rewrite neu co, khong thi cau user go."""
+    return state.get("search_query") or state["question"]
+
+
 async def retrieve_node(state: AgentState) -> dict:
     """Tim Top-5 chunks: repository.hybrid_search() (pgvector + FTS) -> rerank."""
     from app.indexing.embeddings import get_embedding_provider
     from app.indexing.reranker import get_reranker
     from app.storage import repository
 
-    print(f"\n[NODE] retrieve -- {state['question'][:70]}", flush=True)
+    query = search_query_of(state)
+    print(f"\n[NODE] retrieve -- {query[:70]}", flush=True)
 
     provider = get_embedding_provider()
     # embed_query la ham SYNC (goi HTTP Gemini, co the retry/sleep) - chay trong
@@ -176,15 +187,15 @@ async def retrieve_node(state: AgentState) -> dict:
     # Embed (Gemini) va dich cho nhanh tu khoa (Groq) doc lap nhau -> chay song song.
     # wait_for: client embedding khong dam bao co timeout -> ket noi chet lang khong duoc lam treo /ask.
     query_embedding, sparse_query = await asyncio.gather(
-        asyncio.wait_for(asyncio.to_thread(provider.embed_query, state["question"]), EMBED_TIMEOUT_SEC),
-        sparse_query_for(state["question"]),
+        asyncio.wait_for(asyncio.to_thread(provider.embed_query, query), EMBED_TIMEOUT_SEC),
+        sparse_query_for(query),
     )
     if sparse_query:
         print(f"[NODE] retrieve -- tu khoa (dich EN): {sparse_query[:70]}", flush=True)
 
     candidates = await repository.hybrid_search(
         paper_id=state["paper_id"],
-        query_text=state["question"],
+        query_text=query,
         query_embedding=query_embedding,
         top_k=FIRST_STAGE_K,
         sparse_query_text=sparse_query,
@@ -193,7 +204,7 @@ async def retrieve_node(state: AgentState) -> dict:
     # rerank cung SYNC (Cohere HTTP hoac CrossEncoder.predict tren CPU) -> to_thread.
     # get_reranker() la singleton: khong tao lai manager/client moi lan retrieve.
     chunks = await asyncio.to_thread(
-        get_reranker().rerank, state["question"], candidates, 5
+        get_reranker().rerank, query, candidates, 5
     )
 
     print(f"[NODE] retrieve -- Tim duoc {len(chunks)} chunks.", flush=True)
@@ -236,7 +247,8 @@ async def rewrite_node(state: AgentState) -> dict:
     response = await chain.ainvoke({"question": state["question"]})
     new_q = _text(response).strip()
     print(f"[NODE] rewrite -- moi: {new_q}", flush=True)
-    return {"question": new_q, "rewrite_count": state["rewrite_count"] + 1}
+    # Chi doi cau dung de TIM; question giu nguyen cho grade/generate/lich su.
+    return {"search_query": new_q or state["question"], "rewrite_count": state["rewrite_count"] + 1}
 
 
 def context_note(grade: str) -> str:
@@ -448,6 +460,9 @@ async def ask(question: str, paper_id: str, thread_id: str = "default") -> dict:
     config = {"configurable": {"thread_id": thread_id}}
     initial_state = {
         "question": question,
+        # Phai reset moi luot: checkpointer giu state theo thread_id, khong reset thi cau
+        # rewrite cua luot TRUOC se bi dung de tim cho cau hoi moi.
+        "search_query": "",
         "paper_id": paper_id,
         "retrieved_chunks": [],
         "grade": "",

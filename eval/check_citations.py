@@ -237,7 +237,7 @@ async def main(args: argparse.Namespace) -> None:
                          "abstained": abstained, "alce": alce_result, "secs": secs, "error": ""})
             answers.append({
                 "id": it["id"], "type": it["type"], "model": model, "question": it["question"],
-                "final_question": result.get("question"), "grade": result.get("grade"),
+                "final_question": result.get("search_query") or result.get("question"), "grade": result.get("grade"),
                 "first_grade": tr["first_grade"], "first_scores": tr["first_scores"],
                 "llm_calls": tr["llm_calls"], "rewrites": result.get("rewrite_count"),
                 "abstained": abstained, "markers": s["markers"], "alt": s["alt"], "answer": answer,
