@@ -63,5 +63,10 @@ class TestPromptAsksForMarkers:
         assert "[1, 3]" in RAG_ANSWER_TEMPLATE
         assert "Never invent" in RAG_ANSWER_TEMPLATE
 
+    def test_template_asks_for_a_marker_on_every_sentence(self):
+        # ALCE 2026-11-17: 24 cau khang dinh khong co [n] vi model chi gan marker cuoi doan.
+        assert "EACH sentence" in RAG_ANSWER_TEMPLATE
+        assert "[2]. It then reranks" in RAG_ANSWER_TEMPLATE
+
     def test_template_forbids_lenticular_brackets(self):
         assert "【" in RAG_ANSWER_TEMPLATE
