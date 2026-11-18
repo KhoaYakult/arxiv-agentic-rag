@@ -113,3 +113,17 @@ class TestContextNote:
         text = prompt.format(context="[1] x", chat_history="", question="q", context_note=INSUFFICIENT_CONTEXT_NOTE)
         assert "probably do NOT answer" in text and "different model, dataset, split or setting" in text
         assert "WARNING" not in prompt.format(context="[1] x", chat_history="", question="q", context_note="")
+
+
+class TestRewriteCap:
+    def _state(self, grade, rewrites):
+        return {"grade": grade, "rewrite_count": rewrites}
+
+    def test_only_one_rewrite_round(self):
+        # Vong rewrite thu 2 khong cuu duoc cau co dap an nao trong eval, chi lam cau bay lot.
+        from app.agent.rag_graph import MAX_REWRITES, decide_after_grade
+
+        assert MAX_REWRITES == 1
+        assert decide_after_grade(self._state("no", 0)) == "rewrite"
+        assert decide_after_grade(self._state("no", 1)) == "generate"
+        assert decide_after_grade(self._state("yes", 0)) == "generate"

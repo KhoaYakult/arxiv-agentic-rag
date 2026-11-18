@@ -43,7 +43,10 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-MAX_REWRITES = 2
+# 1 vong rewrite (truoc la 2). Du lieu eval 2026-11-02..17 (~170 luot hoi): vong 2 KHONG cuu
+# duoc cau co dap an nao; lan duy nhat no doi grade sang "yes" la o cau bay (q49/q51/q53) ->
+# tat canh bao INSUFFICIENT_CONTEXT_NOTE, q49 bia so. Bo vong 2 = bot 2 luot LLM + 1 embedding.
+MAX_REWRITES = 1
 
 
 def _text(response) -> str:
