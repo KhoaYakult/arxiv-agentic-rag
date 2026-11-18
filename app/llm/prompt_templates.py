@@ -119,6 +119,26 @@ TRANSLATE_QUERY_TEMPLATE = """Translate this question about a scientific paper i
 Question: {question}"""
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 5. CONDENSE QUERY TEMPLATE
+# Nhiem vu: cau hoi noi tiep ("no train tren dataset nao?") -> cau TU DU NGHIA de TIM.
+# Chi chay khi co lich su chat. Gop luon viec dich sang tieng Anh (thay TRANSLATE_QUERY khi
+# co lich su) -> 1 luot goi. Cau tra loi van theo cau goc + lich su.
+# ──────────────────────────────────────────────────────────────────────────────
+
+CONDENSE_QUERY_TEMPLATE = """Rewrite the user's LAST question so it can be understood without the conversation, for searching inside one scientific paper.
+- Replace pronouns and vague references ("it", "this method", "the first one", "nó", "cái đó", "còn ... thì sao") with what they refer to in the conversation.
+- Keep technical terms, model names, dataset names and numbers exactly as written.
+- Do not add facts or numbers taken from the assistant's answers; only resolve what the question refers to.
+- If the question is already self-contained, keep it unchanged.
+
+Return ONLY JSON: {{"question": "<standalone question, in the same language as the last question>", "english": "<the same standalone question in English>"}}
+
+Conversation:
+{chat_history}
+
+Last question: {question}"""
+
+# ──────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT: Xem thu cac template
 # ──────────────────────────────────────────────────────────────────────────────
 
